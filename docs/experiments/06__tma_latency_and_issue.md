@@ -1,6 +1,6 @@
 # 06 — TMA / bulk-copy latency, issue cost, and concurrency limits (async proxy, global → shared)
 
-> **Device configuration:** runs under [`docs/context/10__device_config.md`](../context/10__device_config.md): H100 NVL (GPU 2), 132 SMs, 60 MiB L2, HBM3 3.94 TB/s, SM clock locked at 1635 MHz, power limit 400 W, ECC on, CUDA 12.9.1 `sm_90a`. Reference numbers quoted in this spec come from **other chips and configurations** (H800 PCIe, H100 PCIe, H100 SXM, H200, RTX 5090; see `10` §4). They are kept unchanged as intuition and reproduction targets, not as expectations for this device.
+> **Device configuration:** runs under [`docs/context/10__device_config.md`](../context/10__device_config.md): H100 NVL (GPU 2), 132 SMs, 60 MiB L2, HBM3 3.94 TB/s, SM clock locked at 1635 MHz, power limit 400 W, ECC on, CUDA 12.9.1 `sm_90a`. Reference numbers quoted in this spec come from **other chips and configurations** (H800 PCIe, H100 PCIe, H100 SXM, H200, RTX 5090; see `10` §4). They are kept unchanged for the agent's sanity checks only, never cited in the notebook and not expectations for this device.
 
 ## Goal
 For the async-proxy load path (rows 10, 13, 21 of `docs/context/02__memory_access_taxonomy.md`): (1) end-to-end latency of one bulk copy from L2 and from HBM as a function of footprint (the async twin of `04` K2), (2) the fixed costs: issue gap per command, mbarrier polling granularity, completion overhead vs payload size, (3) the per-SM concurrency limit (transactions in flight) and the per-SM read bandwidth limit, (4) tensor vs non-tensor and box-shape effects on latency.
@@ -32,13 +32,15 @@ Same chase with `ld.global.cg.u64` in the same binary (and `cp.async.cg` 16 B + 
 `06__tma__boxes.csv`: `box, swizzle, source, descriptor_state ∈ {cold, prefetched}, cycles`.
 
 ## Figures
-1. Latency vs footprint: TMA (a–c) vs generic (K5) on one plot (reproduce P1 Fig. 3 "H800 (by TMA)").
+1. Latency vs footprint: TMA (a–c) vs generic (K5) on one plot.
 2. Completion time vs payload with the fitted T0 and 1/BW; staircase zoom.
 3. Issue span vs N (knee = admission limit) and completion vs N.
 4. Box-shape latency bars.
 
-## Pass criteria
+## Sanity checks (agent-only)
+Expected ranges for judging plausibility during result analysis. They are never presented as pass/fail and never quoted in the notebook. If a value falls outside, investigate (placement, clocks, SASS, cache state, ncu replay) and re-run. A value that survives is a finding about this device; describe it on its own terms.
 TMA − generic ≈ 120–220 cycles for L2 and DRAM regimes; no inflection at the L1 size; per-SM TMA BW ≈ 32 B/cycle ±15 %; admission limit = 16 (if different, report); issue gap 40–60 cycles.
+- Figure 1 vs P1 Fig. 3 "H800 (by TMA)".
 
 ## NVIDIA tools
 `ncu --metrics sm__sass_inst_executed_op_tma_ld.sum,l1tex__tmain_requests.sum,l1tex__m_xbar2l1tex_read_bytes_mem_global_op_tma_ld.sum,l1tex__m_xbar2l1tex_read_bytes_mem_global_op_tma_ld.avg.per_cycle_active,l1tex__m_xbar2l1tex_read_bytes_mem_global_op_tma_ld.avg.peak_sustained,sm__pipe_tma_cycles_active.avg,lts__t_sectors_srcunit_tex_op_read.sum,l1tex__t_sectors_pipe_lsu_mem_global_op_ld.sum (must be 0 for TMA variants) --clock-control none --cache-control none`; `cuobjdump -sass` showing `UBLKCP.S.G` / `UTMALDG` / `SYNCS.ARRIVE.TRANS64` / `SYNCS.PHASECHK.TRANS64.TRYWAIT` in the loop.

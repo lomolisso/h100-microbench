@@ -1,6 +1,6 @@
 # 02 — Cluster launch overhead, achievable cluster occupancy, and scheduling-policy placement
 
-> **Device configuration:** runs under [`docs/context/10__device_config.md`](../context/10__device_config.md): H100 NVL (GPU 2), 132 SMs, 60 MiB L2, HBM3 3.94 TB/s, SM clock locked at 1635 MHz, power limit 400 W, ECC on, CUDA 12.9.1 `sm_90a`. Reference numbers quoted in this spec come from **other chips and configurations** (H800 PCIe, H100 PCIe, H100 SXM, H200, RTX 5090; see `10` §4). They are kept unchanged as intuition and reproduction targets, not as expectations for this device.
+> **Device configuration:** runs under [`docs/context/10__device_config.md`](../context/10__device_config.md): H100 NVL (GPU 2), 132 SMs, 60 MiB L2, HBM3 3.94 TB/s, SM clock locked at 1635 MHz, power limit 400 W, ECC on, CUDA 12.9.1 `sm_90a`. Reference numbers quoted in this spec come from **other chips and configurations** (H800 PCIe, H100 PCIe, H100 SXM, H200, RTX 5090; see `10` §4). They are kept unchanged for the agent's sanity checks only, never cited in the notebook and not expectations for this device.
 
 ## Goal
 Quantify what it costs to *launch* a cluster kernel relative to a non-cluster kernel with identical grid/block, how many clusters of each size can be co-resident (and how many SMs stay idle), and how `cudaClusterSchedulingPolicy` {Default, Spread, LoadBalancing} changes rank→SM placement. This is the fixed-cost baseline for every DSMEM collective.
@@ -29,13 +29,15 @@ Same kernel but `cycles` large (≈ 2 M) so that all co-resident blocks overlap;
 `02__cluster_launch__occupancy.csv`: `cs, policy, smem_bytes, api_max_active_clusters, measured_first_wave_clusters, sms_used, sms_idle`.
 
 ## Figures
-1. Overhead % vs grid size, one line per CS (reproduce P2 Fig. 3a).
-2. Tile map of SMs (sorted by smid) coloured by cluster id for CS 8 and CS 16 (reproduce P2 Fig. 3b/c) — the notebook must also draw it with SMs ordered by the GPC map from `03` once available.
+1. Overhead % vs grid size, one line per CS.
+2. Tile map of SMs (sorted by smid) coloured by cluster id for CS 8 and CS 16 — the notebook must also draw it with SMs ordered by the GPC map from `03` once available.
 3. Bar chart: measured first-wave clusters vs API prediction per CS and policy; idle SMs per CS.
 4. Table of placement invariants (i)–(iii).
 
-## Pass criteria
+## Sanity checks (agent-only)
+Expected ranges for judging plausibility during result analysis. They are never presented as pass/fail and never quoted in the notebook. If a value falls outside, investigate (placement, clocks, SASS, cache state, ncu replay) and re-run. A value that survives is a finding about this device; describe it on its own terms.
 Overhead(CS 2) < 2 %; Overhead(CS 16, 2112 blocks) in [10 %, 30 %]; idle SMs at CS 16 reproduced within ±4 of P2 (which card-dependent); Default/Spread never co-locate.
+- Figure 1 shape vs P2 Fig. 3a; figure 2 placement pattern vs P2 Fig. 3b/c.
 
 ## NVIDIA tools
 cudaEvents (primary), `nsys profile --trace cuda --stats=true` on one configuration to show the launch gap directly (`cuda_gpu_kern_sum`, `cuda_api_sum`); `ncu --metrics sm__cycles_active.avg,sm__cycles_elapsed.avg,launch__*` (launch statistics section: `launch__cluster_dim_x`, `launch__cluster_max_active`, `launch__cluster_max_potential_size`, `launch__cluster_scheduling_policy` — verify names with `ncu --query-metrics | grep -i cluster`).

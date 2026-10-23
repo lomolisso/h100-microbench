@@ -1,6 +1,6 @@
 # 07 — Cost of every synchronization primitive (block, cluster, mbarrier, fences, flags) vs cluster size and thread count
 
-> **Device configuration:** runs under [`docs/context/10__device_config.md`](../context/10__device_config.md): H100 NVL (GPU 2), 132 SMs, 60 MiB L2, HBM3 3.94 TB/s, SM clock locked at 1635 MHz, power limit 400 W, ECC on, CUDA 12.9.1 `sm_90a`. Reference numbers quoted in this spec come from **other chips and configurations** (H800 PCIe, H100 PCIe, H100 SXM, H200, RTX 5090; see `10` §4). They are kept unchanged as intuition and reproduction targets, not as expectations for this device.
+> **Device configuration:** runs under [`docs/context/10__device_config.md`](../context/10__device_config.md): H100 NVL (GPU 2), 132 SMs, 60 MiB L2, HBM3 3.94 TB/s, SM clock locked at 1635 MHz, power limit 400 W, ECC on, CUDA 12.9.1 `sm_90a`. Reference numbers quoted in this spec come from **other chips and configurations** (H800 PCIe, H100 PCIe, H100 SXM, H200, RTX 5090; see `10` §4). They are kept unchanged for the agent's sanity checks only, never cited in the notebook and not expectations for this device.
 
 ## Goal
 Isolated latency (cycles) of each primitive in `docs/context/05__synchronization_primitives.md` §1 so that the DSMEM/TMA protocol costs in later experiments can be decomposed; identify which stall reason absorbs each wait; and quantify the cheapest correct way to signal "data ready" between two CTAs of a cluster.
@@ -35,14 +35,16 @@ Run K2(e) and K3 `try_wait` loops under `ncu --section WarpStateStats,SourceCoun
 `07__sync__stalls.csv`: `primitive, pc_opcode, stall_reason, samples`.
 
 ## Figures
-1. Arrive / wait / sync vs CS, lines per block size (reproduce P2 Fig. 4a–h).
+1. Arrive / wait / sync vs CS, lines per block size.
 2. Relaxed vs release arrive (fence cost) bar.
 3. Ping-pong round trip for the 10 signalling methods, sorted; dotted line = via-GMEM reference.
 4. mbarrier operation costs bar; try_wait suspension actual vs hint.
 5. Stall-reason breakdown for the two spin loops.
 
-## Pass criteria
+## Sanity checks (agent-only)
+Expected ranges for judging plausibility during result analysis. They are never presented as pass/fail and never quoted in the notebook. If a value falls outside, investigate (placement, clocks, SASS, cache state, ncu replay) and re-run. A value that survives is a finding about this device; describe it on its own terms.
 `__syncthreads` 10–30; arrive 500–1300; wait 40–100; sync 800–1400; mbarrier predicate 30–60; via-GMEM round trip 900–1300; st.async/mbarrier signalling faster than plain-store polling (report either way).
+- Figure 1 vs P2 Fig. 4a–h.
 
 ## NVIDIA tools
 ncu as above plus `sass__inst_executed_per_opcode` to count `UCGABAR_ARV/WAIT`, `SYNCS.*`, `MEMBAR.*`, `CGAERRBAR`, `FENCE.VIEW.ASYNC.*` per kernel; `cuobjdump -sass` of each primitive's kernel in the notebook.

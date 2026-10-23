@@ -21,7 +21,7 @@ Rules:
 
 - Lock the SM clock before every run to the value fixed in `10__device_config.md` §2 (1635 MHz on this H100 NVL). It was chosen for this card by `tools/clocktest/select_clock.sh` as the highest clock sustained without throttling under the suite's heaviest load. Lock it with `tools/run --profile --lock-sm-mhz 1635`, which runs `nvidia-smi -lgc` and resets on exit. Earlier versions of this rule used the SXM5 base clock (≈ 1590 MHz on H100 SXM5), which does not apply to this card: its "Default Applications Clocks" value is its 1785 MHz maximum. Do not lock the memory clock: HBM3 runs at its fixed 2619 MHz, which every run checks. Record both in every CSV row (`sm_clock_mhz`, `mem_clock_mhz`) as **measured** values, not the requested ones.
 - When profiling with ncu, pass `--clock-control none` so that our `nvidia-smi -lgc` lock stays in force (ncu's own default is `boost` since 2026.1 and was `base` before; never rely on the default). For runs where the kernel's own `clock64()` numbers are the deliverable, run **without** ncu, with `nvidia-smi` locks, and separately with ncu for counters.
-- Report `cudaDeviceProp.clockRate` and the measured `sm__cycles_elapsed.avg.per_second` in the notebook header.
+- Report `cudaDeviceProp.clockRate` and the measured `sm__cycles_elapsed.avg.per_second` in the notebook's experimental-setup section.
 
 ## 3. Placement control (which SM / which GPC)
 
@@ -63,13 +63,27 @@ Rules:
 - All timed PTX in `asm volatile` with `"memory"` clobber; dependent chains carry the loaded value into the next address (`p = *(T**)p` pattern) so the compiler cannot hoist/parallelise.
 - Keep the timed region free of `printf`, division, and host-visible writes; store results to a per-block slot of a global buffer **after** the second `clock64()` read.
 - One warp (or one thread) for latency; full occupancy for bandwidth. State the exact block/grid dims in every experiment.
-- Compile with `-arch=sm_90a -O3 -lineinfo`; keep a `cuobjdump -sass` dump of every benchmark binary in `results/sass/` and have the notebook show the SASS of the timed loop (so reviewers can see that the dependent chain and the intended instruction, e.g. `UBLKCP`, `UTMALDG`, `LD.E` for DSMEM, `SYNCS.*`, are present).
+- Compile with `-arch=sm_90a -O3 -lineinfo`; keep a `cuobjdump -sass` dump of every benchmark binary in `results/sass/`. Check that the timed loop contains the dependent chain and the intended instruction (e.g. `UBLKCP`, `UTMALDG`, `LD.E` for DSMEM, `SYNCS.*`). The notebook shows a SASS excerpt only where it explains a key result.
+- Every benchmark `.cu` file starts with a docstring block comment:
+  - what is measured;
+  - how each kernel does it (timed region, dependency chain, placement, parameters);
+  - what goes into the CSV.
+
+  Use inline comments where the code is not self-explanatory. Be precise, not verbose.
 
 ## 8. Notebook structure (one `.ipynb` per experiment)
 
-1. Title + one-paragraph goal + link to the experiment markdown.
-2. "What the kernel does" — the timed loop in CUDA/PTX and the SASS excerpt.
-3. Environment table (from the CSV mandatory columns).
-4. Figures (matplotlib; one figure per quantity listed in the experiment file's "Figures" section; axes labelled with units; GPU-wide reference lines drawn as dotted lines where the experiment file says so).
-5. "Reproduction of prior work" — a table comparing our medians with `docs/context/08__prior_work_reference_numbers.md` rows and a ✔/✘ at the stated tolerance.
-6. "Interpretation" — 5–10 sentences max, including anomalies.
+The notebook is the public result: a self-contained technical report on **our own** measurements of this H100.
+- It never mentions the repository's markdown documents (`docs/`, the specs, `CLAUDE.md`, `AGENTS.md`), agents, Claude, or how the work was organised.
+- It never cites, plots or tabulates other works or their numbers. Those are for the agent's sanity checks only (`08`).
+- It contains no pass/fail verdicts: we characterise a real system.
+
+Sections:
+1. **Title and goal.** What question the experiment answers about the H100 and why it matters, in a few sentences.
+2. **Background.** The concepts a reader needs to follow the experiment, e.g. what an mbarrier, a thread-block cluster, DSMEM or the TMA is and how it is used. Understandable and concise, yet thorough. Code snippets (CUDA/PTX, occasionally SASS) only where they explain a key aspect. The full kernel explanation lives in the `.cu` docstring (§7), not here.
+3. **Experimental setup.**
+   - The device and fixed configuration, from the CSV mandatory columns and `10__device_config.md`: GPU, SMs, locked SM clock, memory clock, power limit, toolkit.
+   - What is measured and how: timer, placement, dependency chain, cache state.
+   - Swept parameters and repetitions, plus any discarded launches with their count.
+4. **Results.** The figures listed in the spec's "Figures" section (matplotlib; axes labelled with units; this device's GPU-wide reference lines dotted where the spec says so), plus compact tables of the key numbers (median, p5–p95).
+5. **Insights.** Concise. Lead with the most relevant conclusions for the experiment's goal and what they reveal about the H100's microarchitecture. Go beyond describing the figures, and name anomalies and limitations.

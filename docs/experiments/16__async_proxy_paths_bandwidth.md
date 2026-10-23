@@ -1,6 +1,6 @@
 # 16 — Bandwidth and completion overhead of every async-proxy path: TMA/bulk G→S, G→R, multicast, S→R put, reduce-put, S→G store, reduce-store, tensor vs non-tensor
 
-> **Device configuration:** runs under [`docs/context/10__device_config.md`](../context/10__device_config.md): H100 NVL (GPU 2), 132 SMs, 60 MiB L2, HBM3 3.94 TB/s, SM clock locked at 1635 MHz, power limit 400 W, ECC on, CUDA 12.9.1 `sm_90a`. Reference numbers quoted in this spec come from **other chips and configurations** (H800 PCIe, H100 PCIe, H100 SXM, H200, RTX 5090; see `10` §4). They are kept unchanged as intuition and reproduction targets, not as expectations for this device.
+> **Device configuration:** runs under [`docs/context/10__device_config.md`](../context/10__device_config.md): H100 NVL (GPU 2), 132 SMs, 60 MiB L2, HBM3 3.94 TB/s, SM clock locked at 1635 MHz, power limit 400 W, ECC on, CUDA 12.9.1 `sm_90a`. Reference numbers quoted in this spec come from **other chips and configurations** (H800 PCIe, H100 PCIe, H100 SXM, H200, RTX 5090; see `10` §4). They are kept unchanged for the agent's sanity checks only, never cited in the notebook and not expectations for this device.
 
 ## Goal
 Per-SM B/cycle and GPU-wide TB/s for rows 10–21 of `docs/context/02__memory_access_taxonomy.md`, with the fixed completion overhead of each mechanism (mbarrier vs bulk group) separated from the streaming rate; the multicast fan-out gain; and the cost of hardware reductions (bulk reduce into DSMEM and into L2) versus plain copies. Together with `05` (generic) and `11` (DSMEM generic), this completes the "every access type" bandwidth table.
@@ -27,15 +27,17 @@ Per-SM B/cycle and GPU-wide TB/s for rows 10–21 of `docs/context/02__memory_ac
 `16__async__ncu.csv`: joined raw ncu metrics per configuration.
 
 ## Figures
-1. Per-SM B/cycle vs command size for P1/P2/P3/P5/P7 (L2 source) — shows the per-command cost and the 32 B/cycle (read) and put (≈21 B/cycle) ceilings.
+1. Per-SM B/cycle vs command size for P1/P2/P3/P5/P7 (L2 source) — shows the per-command cost and the measured per-SM read and put ceilings.
 2. GPU-wide TB/s vs active SMs for G→S (HBM) and S→G, dotted lines = `05` generic DRAM/L2 TB/s.
 3. Multicast: delivered B/cycle/SM vs cluster mask size, unicast reference; L2 sectors read per delivered byte.
 4. Reduce vs copy bandwidth (DSMEM and L2 destinations) per data type.
 5. Tensor box-shape and swizzle/promotion effects (bars).
 6. Completion intercepts (cycles) per mechanism and stage count.
 
-## Pass criteria
+## Sanity checks (agent-only)
+Expected ranges for judging plausibility during result analysis. They are never presented as pass/fail and never quoted in the notebook. If a value falls outside, investigate (placement, clocks, SASS, cache state, ncu replay) and re-run. A value that survives is a finding about this device; describe it on its own terms.
 P1 from HBM reaches ≥ 85 % of DRAM peak GPU-wide; per-SM read ceiling 28–40 B/cycle; multicast ×4 delivers ≥ 1.6× unicast per SM with ≈ 1/4 of the L2 sector reads; S→R put ≈ 20 ± 3 B/cycle/SM; tensor 2-D 16 KB within 10 % of non-tensor 16 KB.
+- Per-SM ceilings vs prior work: read 32 B/cycle (P5), put ≈ 21 B/cycle (P3/P5).
 
 ## NVIDIA tools
 `ncu --metrics sm__sass_inst_executed_op_tma_ld.sum,sm__sass_inst_executed_op_tma_st.sum,sm__sass_inst_executed_op_tma_red.sum,sm__sass_inst_executed_op_dshared_tma_st.sum,sm__sass_inst_executed_op_dshared_tma_red.sum,l1tex__m_xbar2l1tex_read_bytes_mem_global_op_tma_ld.sum,l1tex__m_xbar2l1tex_read_bytes_mem_global_op_tma_ld_dest_self.sum,l1tex__m_xbar2l1tex_read_bytes_mem_global_op_tma_ld_dest_multicast.sum,l1tex__m_l1tex2xbar_write_bytes_mem_global_op_tma_st.sum,l1tex__m_l1tex2xbar_write_bytes_mem_global_op_tma_red.sum,l1tex__m_xbar2l1tex_read_bytes_mem_dshared_op_tma_st.sum,l1tex__m_xbar2l1tex_read_bytes_mem_dshared_op_tma_red.sum,lts__t_sectors_srcunit_tex_op_read.sum,lts__t_sectors_op_red.sum,lts__t_sectors_op_write.sum,dram__bytes_read.sum,dram__bytes_write.sum,sm__pipe_tma_cycles_active.avg,sm__cycles_elapsed.avg.per_second --print-metric-instances values --clock-control none --cache-control none`; SASS listing with `UBLKCP.S.G/G.S/S.S`, `UBLKRED`, `UTMALDG.*`, `UTMASTG.*`, `UTMAREDG.*`, `UBLKPF`, `UTMAPF`, `UTMACMDFLUSH`, `DEPBAR.LE`.

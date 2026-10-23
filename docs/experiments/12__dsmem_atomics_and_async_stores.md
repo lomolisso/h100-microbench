@@ -1,6 +1,6 @@
 # 12 — DSMEM atomics, `red.async`, `st.async`, and store visibility (generic-proxy reductions into remote smem)
 
-> **Device configuration:** runs under [`docs/context/10__device_config.md`](../context/10__device_config.md): H100 NVL (GPU 2), 132 SMs, 60 MiB L2, HBM3 3.94 TB/s, SM clock locked at 1635 MHz, power limit 400 W, ECC on, CUDA 12.9.1 `sm_90a`. Reference numbers quoted in this spec come from **other chips and configurations** (H800 PCIe, H100 PCIe, H100 SXM, H200, RTX 5090; see `10` §4). They are kept unchanged as intuition and reproduction targets, not as expectations for this device.
+> **Device configuration:** runs under [`docs/context/10__device_config.md`](../context/10__device_config.md): H100 NVL (GPU 2), 132 SMs, 60 MiB L2, HBM3 3.94 TB/s, SM clock locked at 1635 MHz, power limit 400 W, ECC on, CUDA 12.9.1 `sm_90a`. Reference numbers quoted in this spec come from **other chips and configurations** (H800 PCIe, H100 PCIe, H100 SXM, H200, RTX 5090; see `10` §4). They are kept unchanged for the agent's sanity checks only, never cited in the notebook and not expectations for this device.
 
 ## Goal
 Latency and throughput of rows 6–9 of the taxonomy (`atom.shared::cluster`, `red.shared::cluster`, `red.async`, `st.async`) — the primitives on which hardware-assisted DSMEM reductions rest — under no contention, same-address contention from N CTAs, and bank-spread patterns; compared with local smem atomics and global atomics (at L2). No published numbers exist for these [lit survey] — these are new measurements.
@@ -36,10 +36,12 @@ One-way latency for: plain `st.shared::cluster`; `st.release.cluster`; `st.async
 2. Throughput vs threads for red / atom / red.async / st.async, conflict-free vs same-word.
 3. Destination ops/cycle vs number of contending sources (fairness: per-source share).
 4. Visibility latency per primitive (box plots) with the load round-trip/2 reference from `09`.
-5. Width-independence plot (time vs width, log-log; reproduce P2 Table II).
+5. Width-independence plot (time vs width, log-log).
 
-## Pass criteria
+## Sanity checks (agent-only)
+Expected ranges for judging plausibility during result analysis. They are never presented as pass/fail and never quoted in the notebook. If a value falls outside, investigate (placement, clocks, SASS, cache state, ncu replay) and re-run. A value that survives is a finding about this device; describe it on its own terms.
 Remote atomic latency ≈ remote load latency + atomic-unit time (expect 200–300 cycles) — report; `red.async`/`st.async` completion within 2× of plain store visibility; width independence reproduced (slope ≈ −1 on log-log).
+- Figure 5 vs P2 Table II (time halves per width doubling).
 
 ## NVIDIA tools
 `ncu --metrics sm__sass_inst_executed_op_dshared_atom.sum,sm__sass_inst_executed_op_dshared_redas.sum,sm__sass_inst_executed_op_dshared_stas.sum,l1tex__t_requests_pipe_lsu_mem_dshared_op_atom.sum,l1tex__t_requests_pipe_lsu_mem_dshared_op_redas.sum,l1tex__m_l1tex2xbar_write_bytes_mem_dshared_op_atom.sum,l1tex__m_l1tex2xbar_write_bytes_mem_dshared_op_redas.sum,l1tex__data_bank_conflicts_pipe_lsu_mem_shared_op_atom.sum,l1tex__t_set_conflicts_pipe_lsu_mem_dshared_op_atom.sum --print-metric-instances values --clock-control none`; SASS: `ATOM.E` / `RED.E` (DSMEM) vs `ATOMS` (local) vs `ATOMG`/`REDG` (global), `STAS`, `REDAS`.

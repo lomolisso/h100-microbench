@@ -1,6 +1,6 @@
 # 17 — Intra-cluster collectives on the hardware primitives: AllReduce, AllGather, ReduceScatter, AlltoAll (and Broadcast)
 
-> **Device configuration:** runs under [`docs/context/10__device_config.md`](../context/10__device_config.md): H100 NVL (GPU 2), 132 SMs, 60 MiB L2, HBM3 3.94 TB/s, SM clock locked at 1635 MHz, power limit 400 W, ECC on, CUDA 12.9.1 `sm_90a`. Reference numbers quoted in this spec come from **other chips and configurations** (H800 PCIe, H100 PCIe, H100 SXM, H200, RTX 5090; see `10` §4). They are kept unchanged as intuition and reproduction targets, not as expectations for this device.
+> **Device configuration:** runs under [`docs/context/10__device_config.md`](../context/10__device_config.md): H100 NVL (GPU 2), 132 SMs, 60 MiB L2, HBM3 3.94 TB/s, SM clock locked at 1635 MHz, power limit 400 W, ECC on, CUDA 12.9.1 `sm_90a`. Reference numbers quoted in this spec come from **other chips and configurations** (H800 PCIe, H100 PCIe, H100 SXM, H200, RTX 5090; see `10` §4). They are kept unchanged for the agent's sanity checks only, never cited in the notebook and not expectations for this device.
 
 ## Goal
 Measure the latency (small messages) and bandwidth (large messages) of the four collectives inside one thread block cluster for cluster sizes 2–16, implemented only with hardware-supported data-movement primitives (multicast TMA, bulk puts, bulk reduce-puts, `st.async`/`red.async`, remote atomics) and the cheapest correct completion mechanism (per-destination mbarrier). Decompose each into data-movement time and synchronisation time, compare algorithms on the same fabric, and produce the per-primitive cost model the 3D-stacked-topology study will re-evaluate.
@@ -42,7 +42,8 @@ Per (algorithm, CS, M): makespan cycles (median, p5, p95); data-movement estimat
 4. Stacked bars: data vs synchronisation share per algorithm (CS 8, M = 16 KB).
 5. Staggered vs naive AlltoAll and multicast vs put Broadcast speed-ups.
 
-## Pass criteria
+## Sanity checks (agent-only)
+Expected ranges for judging plausibility during result analysis. They are never presented as pass/fail and never quoted in the notebook. If a value falls outside, investigate (placement, clocks, SASS, cache state, ncu replay) and re-run. A value that survives is a finding about this device; describe it on its own terms.
 Every algorithm verified bit-exact (integer) / within fp tolerance; AG1 at CS 8, M = 64 KB achieves ≥ 70 % of N × per-SM put cap; B1 multicast ≥ 2× B2 for CS ≥ 4; AR1 beats AR6 (global) for M ≥ 4 KB; the notebook ranks algorithms per (collective, CS, M) and states the crossover sizes.
 
 ## NVIDIA tools

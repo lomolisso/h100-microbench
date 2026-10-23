@@ -1,6 +1,6 @@
 # 01 — Timers, loop overhead, clocks, and the shared harness
 
-> **Device configuration:** runs under [`docs/context/10__device_config.md`](../context/10__device_config.md): H100 NVL (GPU 2), 132 SMs, 60 MiB L2, HBM3 3.94 TB/s, SM clock locked at 1635 MHz, power limit 400 W, ECC on, CUDA 12.9.1 `sm_90a`. Reference numbers quoted in this spec come from **other chips and configurations** (H800 PCIe, H100 PCIe, H100 SXM, H200, RTX 5090; see `10` §4). They are kept unchanged as intuition and reproduction targets, not as expectations for this device.
+> **Device configuration:** runs under [`docs/context/10__device_config.md`](../context/10__device_config.md): H100 NVL (GPU 2), 132 SMs, 60 MiB L2, HBM3 3.94 TB/s, SM clock locked at 1635 MHz, power limit 400 W, ECC on, CUDA 12.9.1 `sm_90a`. Reference numbers quoted in this spec come from **other chips and configurations** (H800 PCIe, H100 PCIe, H100 SXM, H200, RTX 5090; see `10` §4). They are kept unchanged for the agent's sanity checks only, never cited in the notebook and not expectations for this device.
 
 ## Goal
 Establish the measurement floor every later experiment subtracts or relies on: (1) cost and resolution of `%clock64`, `%globaltimer`, `cudaEvent`; (2) the empty-loop overhead of the dependent-chain pattern; (3) the ratio between SM clock and L2 clock as seen by Nsight Compute; (4) a reusable host/device harness (`harness/`) that all other experiments include.
@@ -49,7 +49,8 @@ Empty kernel `<<<1,32>>>` timed with events, 1000 launches; and `cudaEventElapse
 2. Bar chart: cycles/iteration for mov/add/ld.shared × unroll.
 3. Table of clocks from ncu vs `nvidia-smi` vs globaltimer-derived.
 
-## Pass criteria
+## Sanity checks (agent-only)
+Expected ranges for judging plausibility during result analysis. They are never presented as pass/fail and never quoted in the notebook. If a value falls outside, investigate (placement, clocks, SASS, cache state, ncu replay) and re-run. A value that survives is a finding about this device; describe it on its own terms.
 - `ld.shared − mov` ∈ [27, 35] cycles (reproduces P1/P4 local SMEM latency).
 - `%globaltimer` granularity ≈ 32 ns (P2); if it differs, update `docs/context/09__measurement_conventions.md` §1.
 - Cross-SM skew of `%globaltimer` < 1 tick.

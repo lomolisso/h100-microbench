@@ -1,6 +1,6 @@
 # 05 — Generic-proxy bandwidth of SMEM, L1, L2 and HBM (per SM and GPU-wide)
 
-> **Device configuration:** runs under [`docs/context/10__device_config.md`](../context/10__device_config.md): H100 NVL (GPU 2), 132 SMs, 60 MiB L2, HBM3 3.94 TB/s, SM clock locked at 1635 MHz, power limit 400 W, ECC on, CUDA 12.9.1 `sm_90a`. Reference numbers quoted in this spec come from **other chips and configurations** (H800 PCIe, H100 PCIe, H100 SXM, H200, RTX 5090; see `10` §4). They are kept unchanged as intuition and reproduction targets, not as expectations for this device.
+> **Device configuration:** runs under [`docs/context/10__device_config.md`](../context/10__device_config.md): H100 NVL (GPU 2), 132 SMs, 60 MiB L2, HBM3 3.94 TB/s, SM clock locked at 1635 MHz, power limit 400 W, ECC on, CUDA 12.9.1 `sm_90a`. Reference numbers quoted in this spec come from **other chips and configurations** (H800 PCIe, H100 PCIe, H100 SXM, H200, RTX 5090; see `10` §4). They are kept unchanged for the agent's sanity checks only, never cited in the notebook and not expectations for this device.
 
 ## Goal
 Attained throughput in B/cycle/SM and TB/s GPU-wide for ordinary loads/stores at each level, with enough SMs/warps/ILP to saturate. These are the dotted GPU-wide reference lines for the DSMEM bandwidth figures and the denominators for "fraction of peak".
@@ -33,11 +33,13 @@ Same as K3/K4 with `st.global.v4` and 50/50 mixes; records `lts__t_sectors_op_wr
 ## Figures
 1. B/cycle/SM vs threads for SMEM and L1, lines per ILP.
 2. L2 TB/s vs footprint (1–48 MB) with the partition-local / remote variants.
-3. DRAM TB/s vs active SMs (knee annotated), dotted line at 3.35 TB/s (SXM5) or 2.0 TB/s (PCIe) as prior-work references, and at this device's theoretical peak, 3.94 TB/s (`docs/context/10__device_config.md` §3).
+3. DRAM TB/s vs active SMs (knee annotated), dotted line at this device's theoretical peak, 3.94 TB/s (`docs/context/10__device_config.md` §3).
 4. Summary bar: SMEM, L1, L2, DRAM in TB/s GPU-wide (SMEM/L1 = per-SM × SM count × clock).
 
-## Pass criteria
+## Sanity checks (agent-only)
+Expected ranges for judging plausibility during result analysis. They are never presented as pass/fail and never quoted in the notebook. If a value falls outside, investigate (placement, clocks, SASS, cache state, ncu replay) and re-run. A value that survives is a finding about this device; describe it on its own terms.
 SMEM/L1 ≥ 120 B/cycle/SM; L2 ≥ 5 TB/s (SXM5, expected 7–8 TB/s; also compare in B/cycle, since this device's SM clock differs, `10` §4); DRAM ≥ 85 % of this device's theoretical peak (3.94 TB/s, `10` §3).
+- Prior-work DRAM peaks: 3.35 TB/s (SXM5), 2.0 TB/s (PCIe).
 
 ## NVIDIA tools
 `ncu --metrics l1tex__throughput.avg.pct_of_peak_sustained_elapsed,lts__throughput.avg.pct_of_peak_sustained_elapsed,dram__throughput.avg.pct_of_peak_sustained_elapsed,lts__t_bytes.sum.per_second,dram__bytes.sum.per_second,sm__cycles_elapsed.avg.per_second --clock-control none` (with locked clocks) on K3/K4 to cross-check the event-based TB/s; `lts__t_sectors_srcunit_ltcfabric.sum` on K3 variants (b) vs (c) to prove partition locality (verify the metric name with `ncu --query-metrics`).

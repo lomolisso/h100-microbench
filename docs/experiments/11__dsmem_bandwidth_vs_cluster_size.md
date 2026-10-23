@@ -1,6 +1,6 @@
 # 11 — SM-to-SM network bandwidth vs cluster size and access pattern (generic proxy and TMA put)
 
-> **Device configuration:** runs under [`docs/context/10__device_config.md`](../context/10__device_config.md): H100 NVL (GPU 2), 132 SMs, 60 MiB L2, HBM3 3.94 TB/s, SM clock locked at 1635 MHz, power limit 400 W, ECC on, CUDA 12.9.1 `sm_90a`. Reference numbers quoted in this spec come from **other chips and configurations** (H800 PCIe, H100 PCIe, H100 SXM, H200, RTX 5090; see `10` §4). They are kept unchanged as intuition and reproduction targets, not as expectations for this device.
+> **Device configuration:** runs under [`docs/context/10__device_config.md`](../context/10__device_config.md): H100 NVL (GPU 2), 132 SMs, 60 MiB L2, HBM3 3.94 TB/s, SM clock locked at 1635 MHz, power limit 400 W, ECC on, CUDA 12.9.1 `sm_90a`. Reference numbers quoted in this spec come from **other chips and configurations** (H800 PCIe, H100 PCIe, H100 SXM, H200, RTX 5090; see `10` §4). They are kept unchanged for the agent's sanity checks only, never cited in the notebook and not expectations for this device.
 
 ## Goal
 Per-SM injection bandwidth (B/cycle) and GPU-wide aggregate bandwidth (TB/s) of DSMEM traffic for loads, stores and TMA shared→shared copies, as a function of cluster size (2–16), access pattern (pair, ring, broadcast, all-to-all, packed pairs), direction mix (uni/bidirectional, mixed read+write), threads/ILP, and policy. Figure: histogram/bar of aggregate TB/s per cluster size with the GMEM bandwidth from `05` as a dotted line (user's requested figure).
@@ -47,7 +47,8 @@ CS ∈ {2, 4, 8, 16}; threads ∈ {128, 256, 512, 1024}; ILP ∈ {1, 2, 4, 8}; p
 5. TMA chunk-size curve (128 B → 16 KB) with the implied per-command cost.
 6. Local SMEM bandwidth of the victim SM while being read (K4) vs idle.
 
-## Pass criteria
+## Sanity checks (agent-only)
+Expected ranges for judging plausibility during result analysis. They are never presented as pass/fail and never quoted in the notebook. If a value falls outside, investigate (placement, clocks, SASS, cache state, ncu replay) and re-run. A value that survives is a finding about this device; describe it on its own terms.
 One-way remote load/store/TMA put ∈ [18, 23] B/cycle/SM; ring TMA scales ≥ 0.9× linearly to CS 16; broadcast per-reader ≈ 21/N (±20 %); P1's 3.28 TB/s (CS 2 ring, 114 SMs) reproduced within ±15 % after scaling by SM count and clock.
 
 ## NVIDIA tools

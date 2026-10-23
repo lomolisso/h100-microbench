@@ -1,6 +1,6 @@
 # 08 — L2 partition NUCA: near/far hit latency per SM, first-touch homing, replication, and partition hash bits
 
-> **Device configuration:** runs under [`docs/context/10__device_config.md`](../context/10__device_config.md): H100 NVL (GPU 2), 132 SMs, 60 MiB L2, HBM3 3.94 TB/s, SM clock locked at 1635 MHz, power limit 400 W, ECC on, CUDA 12.9.1 `sm_90a`. Reference numbers quoted in this spec come from **other chips and configurations** (H800 PCIe, H100 PCIe, H100 SXM, H200, RTX 5090; see `10` §4). They are kept unchanged as intuition and reproduction targets, not as expectations for this device.
+> **Device configuration:** runs under [`docs/context/10__device_config.md`](../context/10__device_config.md): H100 NVL (GPU 2), 132 SMs, 60 MiB L2, HBM3 3.94 TB/s, SM clock locked at 1635 MHz, power limit 400 W, ECC on, CUDA 12.9.1 `sm_90a`. Reference numbers quoted in this spec come from **other chips and configurations** (H800 PCIe, H100 PCIe, H100 SXM, H200, RTX 5090; see `10` §4). They are kept unchanged for the agent's sanity checks only, never cited in the notebook and not expectations for this device.
 
 ## Goal
 For every SM: the near-hit and far-hit L2 latency, which partition it is "near", and the sub-node offset if any; plus confirmation (or refutation) on this card of DGNA's first-touch homing and remote-line replication, and recovery of the XOR partition hash bits accessible through 2 MB pages. Fills the `partition` / `subnode` columns of `03__sm_gpc_topology__map.csv`.
@@ -35,12 +35,14 @@ For every one of the 132 SMs: K1 against a fixed panel of 256 lines (128 known-n
 ## Figures
 1. Per-SM near/far latencies as a 132-cell tile map (ordered by GPC from `03`) — two panels.
 2. Histogram of all K5 samples (expect 2 or 4 modes).
-3. Bit-participation chart for the partition hash (bits 7–30), with the Fan et al. result (bit 12…, 14 bits on PCIe) overlaid.
+3. Bit-participation chart for the partition hash (bits 7–30).
 4. Replication timeline (K3 phases) for 3 SM pairs.
 5. Effective-capacity curve (K4).
 
-## Pass criteria
+## Sanity checks (agent-only)
+Expected ranges for judging plausibility during result analysis. They are never presented as pass/fail and never quoted in the notebook. If a value falls outside, investigate (placement, clocks, SASS, cache state, ncu replay) and re-run. A value that survives is a finding about this device; describe it on its own terms.
 Two latency modes per SM separated by ≥ 100 cycles; all SMs of a GPC share the same partition label; hash lowest bit = 12 (if 2 MB pages hold); K3 either confirms replication (phase ii near) or not — both are valid results, the notebook states which.
+- Partition hash vs Fan et al. (lowest bit 12, 14 bits on H100 PCIe).
 
 ## NVIDIA tools
 `ncu --metrics lts__t_sectors_srcunit_tex_op_read_lookup_hit.sum,lts__t_sectors_srcunit_tex_op_read_lookup_miss.sum,lts__t_sectors_srcunit_ltcfabric.sum,lts__t_sector_hit_rate.pct --print-metric-instances values --cache-control none --clock-control none` on K1/K5 to (a) show that far reads cross the fabric (`ltcfabric` > 0) and (b) see which slice instance serves each line (feeds `13`).

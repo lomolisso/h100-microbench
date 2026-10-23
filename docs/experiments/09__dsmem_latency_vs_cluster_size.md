@@ -1,6 +1,6 @@
 # 09 — DSMEM remote-access latency vs cluster size (generic proxy)
 
-> **Device configuration:** runs under [`docs/context/10__device_config.md`](../context/10__device_config.md): H100 NVL (GPU 2), 132 SMs, 60 MiB L2, HBM3 3.94 TB/s, SM clock locked at 1635 MHz, power limit 400 W, ECC on, CUDA 12.9.1 `sm_90a`. Reference numbers quoted in this spec come from **other chips and configurations** (H800 PCIe, H100 PCIe, H100 SXM, H200, RTX 5090; see `10` §4). They are kept unchanged as intuition and reproduction targets, not as expectations for this device.
+> **Device configuration:** runs under [`docs/context/10__device_config.md`](../context/10__device_config.md): H100 NVL (GPU 2), 132 SMs, 60 MiB L2, HBM3 3.94 TB/s, SM clock locked at 1635 MHz, power limit 400 W, ECC on, CUDA 12.9.1 `sm_90a`. Reference numbers quoted in this spec come from **other chips and configurations** (H800 PCIe, H100 PCIe, H100 SXM, H200, RTX 5090; see `10` §4). They are kept unchanged for the agent's sanity checks only, never cited in the notebook and not expectations for this device.
 
 ## Goal
 Average dependent-load latency, in SM cycles, of a remote shared-memory access as the cluster grows from 2 to 16 CTAs, for every (source rank, destination rank) pair, under the three scheduling policies; plus the local-via-DSMEM-interface baseline and the remote **store→visibility** latency. Figure: histogram of SM-to-SM latencies per cluster size with the GMEM (DRAM) latency from `04` as a dotted line (user's requested figure).
@@ -34,7 +34,8 @@ Ranks 0 and 1 only (CS 2…16 but only two ranks active). Rank 1 spins on its ow
 4. Store-visibility one-way latency per variant (plain / release / st.async+mbarrier / red.async) vs load round-trip/2.
 5. Fine-grained per-hop series for one pair (to show whether latency is constant or has modes).
 
-## Pass criteria
+## Sanity checks (agent-only)
+Expected ranges for judging plausibility during result analysis. They are never presented as pass/fail and never quoted in the notebook. If a value falls outside, investigate (placement, clocks, SASS, cache state, ncu replay) and re-run. A value that survives is a finding about this device; describe it on its own terms.
 Remote median ∈ [175, 230] cycles at CS 2 and ≤ 10 % growth to CS 16 (P1/P3); local-via-DSMEM ≈ 33; plain store visibility one-way ≈ 300–650 cycles (P5 saw 625 round-trip-ish) — report whatever is measured; `st.async` + mbarrier path should be faster than polling a plain store (hypothesis to test).
 
 ## NVIDIA tools

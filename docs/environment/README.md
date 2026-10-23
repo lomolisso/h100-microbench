@@ -13,14 +13,14 @@ edit / agents / git ─┐
         │  ▼
    build (bin/, gitignored) → run benchmark → CSV written into experiments/<NN>/results/
                      ▼
-   notebook executed (tools/run --no-gpu) → commit + push to GitHub
+   notebook executed (tools/run --no-gpu) → commit → push after the user's review
 ```
 
 There is **no copy step**. The binary is not staged anywhere and the results are not copied back. The container reads the repo and writes the results in place over NFS. The only things on scratch are Docker's image and each container's small writable layer. The container's `/tmp` is RAM (tmpfs).
 
 | What | Where |
 |---|---|
-| Source, notebooks, CSV results, SASS dumps (authoritative) | this repo on NFS; commit and push per experiment |
+| Source, notebooks, CSV results, SASS dumps (authoritative) | this repo on NFS; commit per experiment, push after the user's review |
 | Editing, Claude Code / Codex, git | same directory, on the host |
 | Build outputs (`experiments/*/bin/`), `.ncu-rep`/`.nsys-rep` | in-tree, gitignored |
 | Toolchain | **one** Docker image for all experiments (experiments never build their own); `tools/env build` removes our previous versions after a successful build. Image `h100-microbench:cuda12.9.1-<hash>`: nvcc 12.9.86, Nsight Compute 2025.2.1, Nsight Systems, gdb, Python 3.12 + `requirements.lock` |

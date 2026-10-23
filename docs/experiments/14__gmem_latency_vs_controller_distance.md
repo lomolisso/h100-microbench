@@ -1,6 +1,6 @@
 # 14 — DRAM (HBM3) latency vs partition, memory controller, and channel/bank structure: does SM↔controller distance matter?
 
-> **Device configuration:** runs under [`docs/context/10__device_config.md`](../context/10__device_config.md): H100 NVL (GPU 2), 132 SMs, 60 MiB L2, HBM3 3.94 TB/s, SM clock locked at 1635 MHz, power limit 400 W, ECC on, CUDA 12.9.1 `sm_90a`. Reference numbers quoted in this spec come from **other chips and configurations** (H800 PCIe, H100 PCIe, H100 SXM, H200, RTX 5090; see `10` §4). They are kept unchanged as intuition and reproduction targets, not as expectations for this device.
+> **Device configuration:** runs under [`docs/context/10__device_config.md`](../context/10__device_config.md): H100 NVL (GPU 2), 132 SMs, 60 MiB L2, HBM3 3.94 TB/s, SM clock locked at 1635 MHz, power limit 400 W, ECC on, CUDA 12.9.1 `sm_90a`. Reference numbers quoted in this spec come from **other chips and configurations** (H800 PCIe, H100 PCIe, H100 SXM, H200, RTX 5090; see `10` §4). They are kept unchanged for the agent's sanity checks only, never cited in the notebook and not expectations for this device.
 
 ## Goal
 Decompose the DRAM-miss latency seen by each SM into (a) the L2 partition term (near/far, known ≈ +175 cycles), (b) a per-memory-controller / per-stack term (physical distance between the L2 partition and the HBM stack), and (c) DRAM-internal terms (row-buffer hit/miss, bank conflicts). Also recover as much of the channel/bank interleave as the timing allows. Output: an SM × memory-controller latency matrix and the channel-bit structure.
@@ -34,7 +34,8 @@ Long dependent chain to one line with periodic outliers → tREFI estimate (GPUH
 3. Term sizes from the additive model (partition vs controller vs residual).
 4. Per-FBPA bandwidth under restricted streams.
 
-## Pass criteria
+## Sanity checks (agent-only)
+Expected ranges for judging plausibility during result analysis. They are never presented as pass/fail and never quoted in the notebook. If a value falls outside, investigate (placement, clocks, SASS, cache state, ncu replay) and re-run. A value that survives is a finding about this device; describe it on its own terms.
 Partition term ≈ 150–200 cycles; the notebook states whether the controller term is distinguishable from 0 at 95 % confidence (either outcome is a result); bank-conflict step detected (≥ 20 ns bimodality) or explicitly reported as not observable.
 
 ## NVIDIA tools

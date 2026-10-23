@@ -1,13 +1,13 @@
 # Prior-work reference numbers (H100-class GPUs)
 
-Purpose: every number below was measured on real Hopper silicon by a published microbenchmarking study. They are the **targets to reproduce** in our experiments. When one of our notebooks reproduces a number within its stated tolerance, the notebook must cite the row below ("matches Lühnen et al. 2024, Fig. 4a").
+Purpose: every number below was measured on real Hopper (or, where marked, other) silicon by a published microbenchmarking study. **Agent-only:** they serve to sanity-check our measurements during result analysis (CLAUDE.md, experiment step 3). Use them to judge whether our numbers are plausible and to decide what to investigate. They are **never** cited, plotted or tabulated in the notebooks, which report only our own measurements.
 
 Rules for using these numbers:
 
 1. Record the GPU variant (H100 SXM5 = 132 SMs, H100 PCIe = 114 SMs, H800 PCIe = 114 SMs, H200 = 132 SMs) and, where known, the SM clock. Cycle counts are comparable across variants; TB/s numbers are not (clock and SM count differ).
 2. "Cycles" below are SM clock cycles measured with `clock()`/`clock64()` (per-SM counter) unless stated otherwise.
-3. Papers disagree with each other by 5–15 % on identical quantities (different measurement loops, compilers, clocks). Our tolerance for "reproduced" is ±10 % for latency, ±15 % for bandwidth unless an experiment file says otherwise.
-4. **None of these numbers come from our device.** We run an H100 NVL (132 SMs, 60 MiB L2, HBM3 3.94 TB/s) with the SM clock locked at 1635 MHz, CUDA 12.9.1 (`10__device_config.md`). Each source's chip and configuration is given in its heading below and side by side with ours in `10__device_config.md` §4. Keep the numbers as intuition and reproduction targets. Name the source chip whenever one is quoted, and apply the comparison rules of `10` §4.
+3. Papers disagree with each other by 5–15 % on identical quantities (different measurement loops, compilers, clocks). As a plausibility band, a deviation beyond ±10 % for latency or ±15 % for bandwidth (unless an experiment file says otherwise) triggers an investigation of our setup, not a verdict. A deviation that survives investigation is a property of this device.
+4. **None of these numbers come from our device.** We run an H100 NVL (132 SMs, 60 MiB L2, HBM3 3.94 TB/s) with the SM clock locked at 1635 MHz, CUDA 12.9.1 (`10__device_config.md`). Each source's chip and configuration is given in its heading below and side by side with ours in `10__device_config.md` §4. Keep the numbers as intuition for the sanity checks, and apply the comparison rules of `10` §4.
 
 ## P1 — Luo et al., "Dissecting the NVIDIA Hopper Architecture through Microbenchmarking and Multiple Level Analysis", ACM TOCS 2026 (extends IPDPS 2024 "Benchmarking and Dissecting the Nvidia Hopper GPU Architecture", arXiv:2402.13499). GPU: **H800 PCIe** (114 SMs, 1755 MHz, 50 MB L2, HBM2e 2039 GB/s), CUDA 12.6. Code: https://github.com/HPMLL/NVIDIA-Hopper-Benchmark
 

@@ -87,7 +87,7 @@ Hardware-averaged: `smsp__average_warps_issue_stalled_<reason>_per_issue_active.
 | `discard.global.L2` / `prefetch.global.L2{::evict_last}` / `.L1` | `CCTL.E.RML2` / `CCTL.E.PF2` (`PML2`) / `CCTL.E.PF1` |
 | `bar.sync 0` / `bar.arrive 1,64` / `elect.sync` / `nanosleep` | `BAR.SYNC.DEFER_BLOCKING 0x0` / `BAR.ARV 0x1,0x40` / `ELECT` / `NANOSLEEP` |
 
-Every benchmark binary's SASS must be dumped (`cuobjdump -sass -fun <kernel> bench > results/sass/<kernel>.sass`) and the timed loop excerpt shown in the notebook, so that a reviewer can see e.g. `LD.E` (DSMEM) vs `LDS` (local), the dependent register chain, and `CS2R SR_CLOCKLO` placement.
+Every benchmark binary's SASS must be dumped (`cuobjdump -sass -fun <kernel> bench > results/sass/<kernel>.sass`) and the timed loop checked (the notebook shows an excerpt only where it explains a key result), so that one can see e.g. `LD.E` (DSMEM) vs `LDS` (local), the dependent register chain, and `CS2R SR_CLOCKLO` placement.
 
 ## 4. Compilation flags
 `nvcc -arch=sm_90a -O3 -lineinfo -Xptxas -v` (`sm_90a` is required for `.multicast::cluster` TMA forms, `wgmma`, `setmaxnreg`; everything else assembles for `sm_90`). Add `-Xptxas -warn-spills`. Keep PTX with `--keep` for the notebooks. Hand-written PTX can be validated without nvcc using `ptxas -arch=sm_90a -O3 file.ptx -o file.cubin` then `nvdisasm -c file.cubin`.

@@ -1,7 +1,40 @@
 # H100 microbenchmarking for 3D-stacked GPGPU research — index for the planning and coding agents
 
 ## Mission
-Characterise, on a real H100, the micro-architectural quantities that a 3D-stacking study of the Hopper GPC/DSMEM/L2 hierarchy needs: latency and bandwidth of **every** hardware memory-access path (generic proxy and async proxy/TMA), the cost of **every** synchronisation primitive, the **SM-to-SM network** behaviour versus cluster size and topology, point-to-point latency **heatmaps** across the whole hierarchy (SM×SM, SM×L2-slice, SM×partition, SM×memory-controller) from which physical distance and interconnect structure are inferred, and the performance of **hardware-supported intra-cluster collectives**. Everything is written in CUDA C++ / inline PTX, writes CSV, and is explained in one `.ipynb` per experiment. Prior-work numbers are reproduced and cited where they exist.
+Characterise, on a real H100, the micro-architectural quantities that a 3D-stacking study of the Hopper GPC/DSMEM/L2 hierarchy needs: latency and bandwidth of **every** hardware memory-access path (generic proxy and async proxy/TMA), the cost of **every** synchronisation primitive, the **SM-to-SM network** behaviour versus cluster size and topology, point-to-point latency **heatmaps** across the whole hierarchy (SM×SM, SM×L2-slice, SM×partition, SM×memory-controller) from which physical distance and interconnect structure are inferred, and the performance of **hardware-supported intra-cluster collectives**. Everything is written in CUDA C++ / inline PTX, writes CSV, and is explained in one self-contained `.ipynb` per experiment. Published prior-work numbers (`docs/context/08`) are used by the agents only to sanity-check our measurements. The notebooks report our own results and never cite other work.
+
+## Experiment status (a new conversation starts here; see CLAUDE.md "Starting a new conversation")
+Status values:
+- `todo`: not started.
+- `in progress`: being implemented in the current conversation.
+- `in review`: committed locally; waiting for the user's review of the notebook; not pushed.
+- `done`: approved by the user and pushed.
+
+Update the row **before** the experiment's commit. "Key results" records what later experiments consume (numbers, file names).
+
+| NN | Experiment | Status | Key results for later experiments |
+|---|---|---|---|
+| — | Environment, device configuration, SM-clock selection | done | `docs/environment/README.md`, `docs/context/10__device_config.md` (SM clock locked at 1635 MHz) |
+| 01 | timers_and_harness | todo | |
+| 02 | cluster_launch_and_occupancy | todo | |
+| 03 | sm_gpc_topology | todo | |
+| 04 | memory_hierarchy_latency | todo | |
+| 05 | memory_hierarchy_bandwidth | todo | |
+| 06 | tma_latency_and_issue | todo | |
+| 07 | synchronization_primitives | todo | |
+| 08 | l2_partitions_and_first_touch | todo | |
+| 09 | dsmem_latency_vs_cluster_size | todo | |
+| 10 | dsmem_latency_heatmap | todo | |
+| 11 | dsmem_bandwidth_vs_cluster_size | todo | |
+| 12 | dsmem_atomics_and_async_stores | todo | |
+| 13 | l2_slice_mapping | todo | |
+| 14 | gmem_latency_vs_controller_distance | todo | |
+| 15 | noc_latency_heatmaps | todo | |
+| 16 | async_proxy_paths_bandwidth | todo | |
+| 17 | dsmem_collectives | todo | |
+| 18 | access_type_summary | todo | |
+
+Experiments run strictly in numerical order (01 → 18). The order respects the dependency graph below.
 
 ## Repository layout
 ```
@@ -22,7 +55,7 @@ docs/
     08__prior_work_reference_numbers.md  every H100-silicon number from the 5 reference papers + blog, with tolerances
     09__measurement_conventions.md       timers, clock locking, placement control, cache control, statistics, CSV schema, notebook layout
     10__device_config.md                 THE device (H100 NVL) and the single fixed run configuration (locked clock, limits); prior-work chips side by side
-  experiments/                 ← one self-contained experiment SPEC per file (kernel design, sweeps, CSV columns, figures, pass criteria, ncu metrics)
+  experiments/                 ← one self-contained experiment SPEC per file (kernel design, sweeps, CSV columns, figures, agent-only sanity checks, ncu metrics)
     01__timers_and_harness.md … 18__access_type_summary.md
   research_notes/              ← raw research notes the context files were distilled from (PTX ISA, CUDA API, Nsight, repos, literature)
 experiments/                   ← IMPLEMENTATIONS, one directory per spec, same NN__name
@@ -60,7 +93,7 @@ Every `experiments/<NN__name>/` contains: `Makefile` (sets `EXP`, `BINS`, includ
                    └─► 07 synchronization primitives ─► 09, 12, 16, 17
 04, 05, 06, 09, 11, 12, 16 (+07) ─► 18 summary
 ```
-Independent groups that can be implemented in parallel once 01–03 exist: {04, 05, 06, 07}, {09, 10, 11, 12}, {08, 13, 14, 15}, {16, 17}; 18 last.
+Groups that are independent of each other once 01–03 exist: {04, 05, 06, 07}, {09, 10, 11, 12}, {08, 13, 14, 15}, {16, 17}; 18 last. This is dependency information only: experiments are run one at a time, in numerical order (see "Experiment status").
 
 ## User-requested deliverables and where they are produced
 | Request (project brief) | Experiment(s) |
@@ -75,15 +108,15 @@ Independent groups that can be implemented in parallel once 01–03 exist: {04, 
 | How things are interconnected (hierarchical crossbars?) | 10 §analysis, 15 §analysis (hierarchical model), 11 (fabric arbitration), 16 (multicast fan-out) |
 | Synchronization primitives: what/when/cost | docs/context 05 (templates) + experiment 07 (costs) |
 | Hardware collectives only; tailored algorithms per topology | docs/context 02 §3 + experiment 17 |
-| Reproduce paper numbers and point it out | docs/context 08 tolerances; every notebook §5 "Reproduction of prior work"; 18 flags |
+| Check our numbers against published ones | agents only, during result analysis: docs/context 08 + each spec's "Sanity checks"; never in the notebooks |
 
 ## Rules for the implementing agents (non-negotiable)
 1. Run every experiment under the configuration in `docs/context/10__device_config.md` (deviations only in a spec section "Device-config deviations"). Follow `docs/context/09__measurement_conventions.md` for timers, clock locking, placement control, cache control, repetitions, CSV schema and notebook layout. Mandatory CSV columns come first in every file; raw per-sample rows are kept.
-2. Use the exact PTX forms in `docs/context/02–05` (all validated with ptxas 12.9 for sm_90a). Compile with `-arch=sm_90a -O3 -lineinfo` (the shared `experiments/harness/Makefile.inc` does this). Dump SASS of every binary to `results/sass/` and show the timed loop in the notebook.
+2. Use the exact PTX forms in `docs/context/02–05` (all validated with ptxas 12.9 for sm_90a). Compile with `-arch=sm_90a -O3 -lineinfo` (the shared `experiments/harness/Makefile.inc` does this). Dump SASS of every binary to `results/sass/` and check that the timed loop contains the intended instructions. Explain each kernel in a docstring at the top of its `.cu` file.
 3. Record `%smid` (and cluster ids/ranks) for every block that produces a number; assert 1 CTA/SM where the spec says so.
 4. Use the Nsight Compute metric names in `docs/context/07__profiling_tools.md` (verified for gh100: DSMEM traffic is `*_mem_dshared*`, TMA is `*_op_tma_*`, L2 fabric is `lts__t_sectors_srcunit_ltcfabric`, L2→L1 fills are `l1tex__m_xbar2l1tex_read_bytes_mem_lg_op_ld`); run ncu with `--clock-control none --cache-control <as specified> --csv --page raw --print-units base --print-metric-name name`; verify unconfirmed items listed in `docs/context/07` §8 on the device first (`ncu --query-metrics`).
-5. Every notebook: goal, kernel + SASS excerpt, environment table, figures listed in the spec, reproduction table against `docs/context/08`, short interpretation. Figures use matplotlib; cycles on the left axis, ns on a secondary axis where helpful; GPU-wide references drawn as dotted lines.
-6. Report failures honestly: if a pass criterion is not met, the notebook says so and the CSV is still kept.
+5. Every notebook follows `docs/context/09` §8: goal → background → experimental setup → results/figures → concise insights. It is self-contained: no references to our markdown docs, agents or workflow; no other works or their numbers; no pass/fail. Figures use matplotlib; cycles on the left axis, ns on a secondary axis where helpful; GPU-wide references drawn as dotted lines.
+6. Report what was measured honestly, including anomalies and partial runs; keep every CSV. Sanity checks against expectations guide the investigation, never the data.
 7. Environment, GPU selection and safety rules: `docs/environment/README.md` (run everything through `tools/run`; GPU 2 default, GPU 3 explicit only). The device here is an H100 NVL (detect and record), CUDA ≥ 12.4 (PTX ≥ 8.4; `.shared::cta` bulk destinations need PTX 8.6), Nsight Compute ≥ 2024, root for `nvidia-smi -lgc` (if unavailable, record clocks continuously and filter).
 
 ## Known unknowns the experiments must settle (summarised from the context files)

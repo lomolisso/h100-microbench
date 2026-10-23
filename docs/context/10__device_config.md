@@ -46,7 +46,7 @@ Use these instead of other chips' values when a spec needs this device's capacit
 | SM clock for B/cycle ↔ TB/s conversions | the clock *measured* during the run (`sm__cycles_elapsed.avg.per_second`), nominally 1635 MHz |
 
 ## 4. Prior work was measured on other chips and configurations
-The numbers in `08__prior_work_reference_numbers.md` and in the experiment specs' "References" lines are **kept unchanged**. They give intuition and reproduction targets, but they come from different silicon:
+The numbers in `08__prior_work_reference_numbers.md` and in the experiment specs' "References" lines are **kept unchanged**. They give the agents intuition for sanity-checking our results (never cited in the notebooks), but they come from different silicon:
 
 | Source | Chip | SMs | SM clock | L2 | Memory | Toolkit |
 |---|---|---|---|---|---|---|
@@ -65,4 +65,4 @@ How to compare:
 - **TB/s and B/cycle chip-wide:** scale with SM count, clock and memory type. Compare per SM per cycle, and state the scaling.
 - **RTX 5090 numbers** (P5 TMA/mbarrier) are a different architecture: intuition only.
 
-Every notebook's "Reproduction of prior work" table names the source chip next to each reference value.
+These comparisons happen during result analysis only. Notebooks describe this device's configuration (§1–2) and report our own numbers.

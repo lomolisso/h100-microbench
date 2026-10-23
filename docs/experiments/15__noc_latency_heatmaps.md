@@ -1,6 +1,6 @@
 # 15 — Point-to-point latency heatmaps across the whole memory hierarchy (SM × L2 slice, SM × partition, SM × SM via DSMEM, SM × SM via L2) and the inferred interconnect
 
-> **Device configuration:** runs under [`docs/context/10__device_config.md`](../context/10__device_config.md): H100 NVL (GPU 2), 132 SMs, 60 MiB L2, HBM3 3.94 TB/s, SM clock locked at 1635 MHz, power limit 400 W, ECC on, CUDA 12.9.1 `sm_90a`. Reference numbers quoted in this spec come from **other chips and configurations** (H800 PCIe, H100 PCIe, H100 SXM, H200, RTX 5090; see `10` §4). They are kept unchanged as intuition and reproduction targets, not as expectations for this device.
+> **Device configuration:** runs under [`docs/context/10__device_config.md`](../context/10__device_config.md): H100 NVL (GPU 2), 132 SMs, 60 MiB L2, HBM3 3.94 TB/s, SM clock locked at 1635 MHz, power limit 400 W, ECC on, CUDA 12.9.1 `sm_90a`. Reference numbers quoted in this spec come from **other chips and configurations** (H800 PCIe, H100 PCIe, H100 SXM, H200, RTX 5090; see `10` §4). They are kept unchanged for the agent's sanity checks only, never cited in the notebook and not expectations for this device.
 
 ## Goal
 The sensitivity-analysis dataset for 3D stacking: for every SM, the latency to every L2 slice (hit), to every partition (miss), and to every reachable SM (DSMEM), in one consistent set of units and one consistent placement map; a fitted additive/hierarchical model that says how much of each latency is "distance"; and an explicit statement of the interconnect structure the data support (flat crossbar per GPC; two-level GPC→partition; sub-node tiers).
@@ -46,7 +46,8 @@ Kernel A: SM set X streams lines homed on slice s at full rate; kernel B: SM j m
 4. Per-SM distance profile (small multiples or parallel coordinates).
 5. Contention: probe latency vs stream target (same slice / same partition / other).
 
-## Pass criteria
+## Sanity checks (agent-only)
+Expected ranges for judging plausibility during result analysis. They are never presented as pass/fail and never quoted in the notebook. If a value falls outside, investigate (placement, clocks, SASS, cache state, ncu replay) and re-run. A value that survives is a finding about this device; describe it on its own terms.
 Additive R² ≥ 0.85; SM-term clustering recovers the `03` GPC map (adjusted Rand index ≥ 0.9); partition coefficient 120–200 cycles; the notebook writes an explicit "inferred interconnect" paragraph (levels found, latency per level, confidence).
 
 ## NVIDIA tools

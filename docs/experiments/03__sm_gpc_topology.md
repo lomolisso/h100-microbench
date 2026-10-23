@@ -1,6 +1,6 @@
 # 03 — Mapping logical SM ids to GPCs (and TPC pairs) on this card
 
-> **Device configuration:** runs under [`docs/context/10__device_config.md`](../context/10__device_config.md): H100 NVL (GPU 2), 132 SMs, 60 MiB L2, HBM3 3.94 TB/s, SM clock locked at 1635 MHz, power limit 400 W, ECC on, CUDA 12.9.1 `sm_90a`. Reference numbers quoted in this spec come from **other chips and configurations** (H800 PCIe, H100 PCIe, H100 SXM, H200, RTX 5090; see `10` §4). They are kept unchanged as intuition and reproduction targets, not as expectations for this device.
+> **Device configuration:** runs under [`docs/context/10__device_config.md`](../context/10__device_config.md): H100 NVL (GPU 2), 132 SMs, 60 MiB L2, HBM3 3.94 TB/s, SM clock locked at 1635 MHz, power limit 400 W, ECC on, CUDA 12.9.1 `sm_90a`. Reference numbers quoted in this spec come from **other chips and configurations** (H800 PCIe, H100 PCIe, H100 SXM, H200, RTX 5090; see `10` §4). They are kept unchanged for the agent's sanity checks only, never cited in the notebook and not expectations for this device.
 
 ## Goal
 Produce `results/03__sm_gpc_topology__map.csv`: for every `%smid` on the device, its co-scheduling domain (GPC id), inferred TPC mate, and (later, from `08`/`15`) its L2 partition and sub-node. Every heatmap in later experiments orders SMs by this map, and the 3D-stacking sensitivity analysis uses it to define "physical distance".
@@ -36,10 +36,12 @@ If root is available: `nvidia-smi mig -lgip` and MIG profile SM counts; the `nvd
 ## Figures
 1. 132-cell tile map (12 × 11) of smids coloured by GPC, annotated with GPC size.
 2. Adjacency heatmap (smid × smid) = number of times two SMs were in the same cluster; block structure shows the GPCs.
-3. Bar chart of GPC sizes compared with ClusterSim's `18,18,16,16,16,16,16,8,4,2,2` and Fan et al.'s H200 `6×16 + 2×18`.
+3. Bar chart of the GPC sizes found on this card.
 
-## Pass criteria
+## Sanity checks (agent-only)
+Expected ranges for judging plausibility during result analysis. They are never presented as pass/fail and never quoted in the notebook. If a value falls outside, investigate (placement, clocks, SASS, cache state, ncu replay) and re-run. A value that survives is a finding about this device; describe it on its own terms.
 Σ sizes = SM count; no component > 18; ≥ 6 components of size ≥ 16 on SXM5 (≥ 6 of ≥ 14 on PCIe). The notebook must state the exact composition found on this card, since it is card-specific.
+- GPC sizes vs ClusterSim's `18,18,16,16,16,16,16,8,4,2,2` (H100 SXM) and Fan et al.'s H200 `6×16 + 2×18`.
 
 ## NVIDIA tools
 None beyond the CUDA runtime; `nvidia-smi -q` (serial number, to tie the map to the physical card) recorded in the CSV `notes`.

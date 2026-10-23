@@ -1,6 +1,6 @@
 # 10 — SM×SM DSMEM latency heatmap per GPC: does physical distance inside a GPC matter?
 
-> **Device configuration:** runs under [`docs/context/10__device_config.md`](../context/10__device_config.md): H100 NVL (GPU 2), 132 SMs, 60 MiB L2, HBM3 3.94 TB/s, SM clock locked at 1635 MHz, power limit 400 W, ECC on, CUDA 12.9.1 `sm_90a`. Reference numbers quoted in this spec come from **other chips and configurations** (H800 PCIe, H100 PCIe, H100 SXM, H200, RTX 5090; see `10` §4). They are kept unchanged as intuition and reproduction targets, not as expectations for this device.
+> **Device configuration:** runs under [`docs/context/10__device_config.md`](../context/10__device_config.md): H100 NVL (GPU 2), 132 SMs, 60 MiB L2, HBM3 3.94 TB/s, SM clock locked at 1635 MHz, power limit 400 W, ECC on, CUDA 12.9.1 `sm_90a`. Reference numbers quoted in this spec come from **other chips and configurations** (H800 PCIe, H100 PCIe, H100 SXM, H200, RTX 5090; see `10` §4). They are kept unchanged for the agent's sanity checks only, never cited in the notebook and not expectations for this device.
 
 ## Goal
 A full `smid_src × smid_dst` matrix of remote DSMEM load latency (and one-way store-visibility latency) for every SM pair that can share a cluster, ordered by the GPC map from `03`, to detect any sub-GPC structure (same TPC, same CPC/6-SM group, same switch plane). This is the central input of the 3D-stacking sensitivity analysis: if the fabric is flat, stacking gains come only from the fabric's base latency; if it is hierarchical, the gains are pair-dependent.
@@ -26,7 +26,8 @@ A full `smid_src × smid_dst` matrix of remote DSMEM load latency (and one-way s
 3. Violin plot of pair latencies split by relation: same TPC / same hypothesised CPC / other.
 4. Load vs remote latency (idle / light / heavy).
 
-## Pass criteria
+## Sanity checks (agent-only)
+Expected ranges for judging plausibility during result analysis. They are never presented as pass/fail and never quoted in the notebook. If a value falls outside, investigate (placement, clocks, SASS, cache state, ncu replay) and re-run. A value that survives is a finding about this device; describe it on its own terms.
 Matrix coverage ≥ 95 % of co-schedulable pairs; per-pair MAD ≤ 2 cycles; the notebook must state a conclusion: "flat within ±X cycles" or "structured: …".
 
 ## NVIDIA tools
