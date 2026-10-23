@@ -15,7 +15,7 @@ Update the row **before** the experiment's commit. "Key results" records what la
 | NN | Experiment | Status | Key results for later experiments |
 |---|---|---|---|
 | — | Environment, device configuration, SM-clock selection | done | `docs/environment/README.md`, `docs/context/10__device_config.md` (SM clock locked at 1635 MHz) |
-| 01 | timers_and_harness | todo | |
+| 01 | timers_and_harness | in review | Harness: `experiments/harness/{harness.cuh,host.hpp,Makefile.inc}` (functional test: `01/src/harness_selftest.cu`). Timer read issue cost: `%clock64`/`%clock`/`%globaltimer` 2 cycles, timer pair 4 cycles. `%globaltimer`: 32 ns tick; offsets between SMs ≤ 1 tick; flag observation across SMs 224–448 ns. Dependent `ld.shared` latency **23 cycles** (30 at unroll 1). Loop overhead at the default (unroll 16, iters 4096): fixed region 66–192 cycles ⇒ ≤ 0.05 cycles/access; use the slope between two `iters` (`results/01__timers__loop_overhead.csv`). ptxas fuses `add.u32` chains and deletes unused timer reads: use `mad.lo` / sinks. **L2/SM = 0.954** (0.951–0.956; L2 ≈ 1556 MHz, DRAM 2619 MHz) at the 1635 MHz lock. Real SM clock under the lock: 1622–1635 MHz, varying per launch and per **8 clock groups (18/18/18/18/16/16/16/12 SMs; SM→GPC candidate for 03, `k2all` run in `results/01__timers__globaltimer_resolution.csv`)**. Empty-kernel launches are host-bound: ≈ 7–8 µs/launch; event pair alone 3.9 µs (`results/01__timers__event_floor.csv`) |
 | 02 | cluster_launch_and_occupancy | todo | |
 | 03 | sm_gpc_topology | todo | |
 | 04 | memory_hierarchy_latency | todo | |

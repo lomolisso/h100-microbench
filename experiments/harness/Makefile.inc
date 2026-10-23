@@ -28,9 +28,7 @@ sass: $(addprefix $(BIN_DIR)/,$(BINS)) | $(SASS_DIR)
 $(SASS_DIR):
 	mkdir -p $(SASS_DIR)
 
-# Experiments define `run` themselves (sweeps, ncu invocations); default is a no-op reminder.
-run:
-	@echo "define a 'run' target in experiments/$(EXP)/Makefile"
+# Experiments define the `run` recipe themselves (sweeps, ncu invocations) after including this file.
 
 clean:
 	rm -rf $(BIN_DIR)

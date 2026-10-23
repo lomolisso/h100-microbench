@@ -82,7 +82,7 @@ Hardware-averaged: `smsp__average_warps_issue_stalled_<reason>_per_issue_active.
 | `st.async` / `red.async` | `STAS` / `REDAS.<OP>` |
 | `cp.async.{cg,ca}` / `commit_group` / `wait_group` | `LDGSTS.E{.BYPASS.128}` / `LDGDEPBAR` / `DEPBAR.LE SB0, N` |
 | `%clock64` / `%clock` / `%globaltimer` | `CS2R R, SR_CLOCKLO` / `CS2R.32`/`S2UR SR_CLOCKLO` / `CS2R R, SR_GLOBALTIMERLO` |
-| `%cluster_ctarank`, `%smid` | `S2UR/S2R SR_CgaCtaId`, `S2R SR_SMID`? (⚠ check mnemonic) |
+| `%cluster_ctarank`, `%smid` | `S2UR/S2R SR_CgaCtaId`, `S2R SR_VIRTUALSMID` (verified in 01's SASS) |
 | `ld.global.cg` / `.ca` / `.cv` / `ld.volatile` | `LDG.E.STRONG.GPU` / `LDG.E` / `LDG.E.STRONG.SYS` / `LDG.E.STRONG.SYS` |
 | `discard.global.L2` / `prefetch.global.L2{::evict_last}` / `.L1` | `CCTL.E.RML2` / `CCTL.E.PF2` (`PML2`) / `CCTL.E.PF1` |
 | `bar.sync 0` / `bar.arrive 1,64` / `elect.sync` / `nanosleep` | `BAR.SYNC.DEFER_BLOCKING 0x0` / `BAR.ARV 0x1,0x40` / `ELECT` / `NANOSLEEP` |
@@ -98,7 +98,7 @@ Every benchmark binary's SASS must be dumped (`cuobjdump -sass -fun <kernel> ben
 ## 6. Clocks
 - Read: `nvidia-smi -q -d CLOCK`; `nvidia-smi --query-gpu=clocks.sm,clocks.mem,clocks.max.sm,clocks.max.mem,clocks_event_reasons.active --format=csv -l 1` (log during long runs).
 - Lock (root): `nvidia-smi -lgc <MHz>,<MHz>` / reset `-rgc`; memory `-lmc` may be refused on Hopper → `--lock-memory-clocks-deferred` / `-lmcd` (HBM clock is effectively fixed) ⚠. `nvidia-smi -ac` is deprecated.
-- In-kernel: `%clock64` per SM (not comparable across SMs), `%globaltimer` ns global (≈32 ns granularity ⚠).
+- In-kernel: `%clock64` per SM (not comparable across SMs), `%globaltimer` ns global (32 ns granularity, verified in 01).
 - `cudaDeviceProp.clockRate` is the max clock, not the running one. Use `sm__cycles_elapsed.avg.per_second` (ncu) or NVML `nvmlDeviceGetClockInfo(NVML_CLOCK_SM)` for the running clock.
 - Third-party spec values (verify on device): SXM5 base 1590 / boost 1980 MHz, PCIe base 1095 / boost 1755 MHz; `nvidia-smi` reports HBM3 as 2619 MHz on SXM5.
 
@@ -114,3 +114,10 @@ NVML `nvmlDeviceGetTotalEnergyConsumption` (mJ, cumulative; integrate over ≥ 1
 6. Stall reason that absorbs `UCGABAR_WAIT` / `SYNCS.PHASECHK` spins.
 7. `l1tex__m_xbar2l1tex_read_bytes_mem_global_op_tma_ld.avg.peak_sustained` (rated TMA read peak per SM) and `l1tex__m_l1tex2xbar_throughput_pipe_lsu_mem_dshared.avg.peak_sustained` (rated SM-to-SM link peak).
 8. `%globaltimer` granularity; whether `MAPA` is ever emitted with a dynamic rank; `nsys` report ids; NVML energy update period.
+
+Settled on this H100 NVL by `01__timers_and_harness` (2026-10-23):
+- Item 1, clocks: under `-lgc 1635,1635`, NVML reports 1635 MHz, but `sm__cycles_elapsed.avg.per_second` reads 1627–1635 MHz. With ncu `--clock-control base`: SM 1075 MHz, L2 1215 MHz. Our lock is still in place after such a profile.
+- Item 2, L2 clock: a separate domain. L2 runs at ≈1556 MHz under our lock (L2/SM 0.951–0.956) and at 1215 MHz under ncu base (L2/SM 1.13). DRAM stays at 2619 MHz.
+- Item 8, `%globaltimer`: increments in exact 32 ns steps. Timer offsets between SMs are ≤ 1 tick.
+- ncu 2025.2.1 rejects `--print-metric-name name` together with `--page raw` ("only supported for the details page"). The raw page's column headers are already metric names, so omit that flag for raw exports.
+- With `--print-metric-instances values`, `gpc__cycles_elapsed.sum` / `sm__cycles_elapsed.sum` are exported as totals (one value), not per instance.
