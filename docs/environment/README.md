@@ -21,7 +21,7 @@ There is **no copy step**. The binary is not staged anywhere and the results are
 | What | Where |
 |---|---|
 | Source, executed notebooks, SASS dumps (authoritative) | this repo on NFS; commit per experiment, push after the user's review |
-| Raw results (`experiments/*/results/*.csv`, logs, ncu/nsys exports) | main checkout on NFS **only**; gitignored, never pushed or deleted; size budget in `docs/context/09` §6 |
+| Raw results (`experiments/*/results/*.csv`, logs, ncu/nsys exports) | main checkout on NFS **only**; gitignored, never pushed or deleted; rules in `docs/context/09` §6 |
 | Editing, Claude Code / Codex, git | same directory, on the host |
 | Build outputs (`experiments/*/bin/`), `.ncu-rep`/`.nsys-rep` | in-tree, gitignored |
 | Toolchain | **one** Docker image for all experiments (experiments never build their own); `tools/env build` removes our previous versions after a successful build. Image `h100-microbench:cuda12.9.1-<hash>`: nvcc 12.9.86, Nsight Compute 2025.2.1, Nsight Systems, gdb, Python 3.12 + `requirements.lock` |
