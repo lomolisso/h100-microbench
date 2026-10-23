@@ -17,7 +17,9 @@
  *                    to results/<EXP>__nvidia_smi.log. A sample is "bad" (launch to be discarded) if a throttle
  *                    reason fired (SW/HW power cap, SW/HW thermal, power brake) or the SM clock is more than one
  *                    15 MHz step below the lock requested through tools/run (H100MB_LOCK_SM_MHZ).
- *   hb::ClusterLaunch  cudaLaunchKernelEx with optional cluster dims and an explicit scheduling policy;
+ *   hb::ClusterLaunch  cudaLaunchKernelEx with optional cluster dims and an explicit scheduling policy
+ *                    (explicit_cluster: also for a cluster of 1); prepare() fills the launch configuration
+ *                    once so that a timed launch is a bare cudaLaunchKernelEx;
  *                    all_distinct()/distinct_within_clusters() check %smid placement.
  *   hb::L2Flusher    streams a 128 MB buffer (read-modify-write) to evict L2.
  *   hb::warmup       runs a launch functor n times, synchronising after each.
@@ -330,11 +332,13 @@ struct ClusterLaunch {
     size_t smem = 0;
     cudaClusterSchedulingPolicy policy = cudaClusterSchedulingPolicyDefault;
     cudaStream_t stream = nullptr;
+    bool explicit_cluster = false;  // attach cluster attributes even for cluster_size() == 1
 
     int cluster_size() const { return (int)(cluster.x * cluster.y * cluster.z); }
 
-    // Cluster attributes are attached only for cluster_size() > 1 (a size-1 cluster would still be an
-    // explicit cluster launch). Sets the dynamic-smem and non-portable-size attributes when needed.
+    // Cluster attributes are attached for cluster_size() > 1, or for a size-1 cluster when explicit_cluster is
+    // set (an explicit cluster launch of 1 CTA); otherwise none. Sets the dynamic-smem and non-portable-size
+    // attributes when needed.
     template <typename... KArgs, typename... Args>
     cudaError_t launch(void (*k)(KArgs...), Args&&... args) const {
         cudaLaunchConfig_t cfg{};
@@ -342,6 +346,15 @@ struct ClusterLaunch {
         fill(reinterpret_cast<const void*>(k), cfg, attrs);
         return cudaLaunchKernelEx(&cfg, k, std::forward<Args>(args)...);
     }
+    // Configuration filled once (function attributes set here), so that a timed launch is a bare
+    // cudaLaunchKernelEx(&p.cfg, k, args...). p.cfg.attrs points into p.attrs: keep p in place.
+    struct Prepared {
+        cudaLaunchConfig_t cfg{};
+        cudaLaunchAttribute attrs[2];
+    };
+    template <typename... KArgs>
+    void prepare(void (*k)(KArgs...), Prepared& p) const { fill(reinterpret_cast<const void*>(k), p.cfg, p.attrs); }
+
     template <typename... KArgs>
     int max_active_clusters(void (*k)(KArgs...)) const {
         cudaLaunchConfig_t cfg{};
@@ -362,7 +375,7 @@ struct ClusterLaunch {
         cfg.stream = stream;
         cfg.attrs = attrs;
         cfg.numAttrs = 0;
-        if (cluster_size() > 1) {
+        if (cluster_size() > 1 || explicit_cluster) {
             attrs[0].id = cudaLaunchAttributeClusterDimension;
             attrs[0].val.clusterDim.x = cluster.x;
             attrs[0].val.clusterDim.y = cluster.y;
