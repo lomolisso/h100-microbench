@@ -23,11 +23,22 @@
       "Bash(wc:*)",
       "Bash(grep:*)",
       "Bash(find:*)",
-      "Bash(mkdir:*)"
+      "Bash(mkdir:*)",
+      "Bash(tools/run:*)",
+      "Bash(tools/gpu:*)",
+      "Bash(tools/env:*)",
+      "Bash(tools/clocktest/select_clock.sh:*)"
     ],
     "deny": [
       "Bash(rm -rf /:*)",
-      "Bash(git push --force:*)"
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(docker run:*)",
+      "Bash(docker system prune:*)",
+      "Bash(docker image prune:*)",
+      "Bash(docker container prune:*)",
+      "Bash(docker volume prune:*)",
+      "Bash(docker builder prune:*)"
     ]
   }
 }
