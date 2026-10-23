@@ -59,7 +59,7 @@ tools/run [--no-gpu]            # interactive shell
   - index, UUID or PCI id don't match the pinned values;
   - any compute process is on it (owner and container are reported);
   - memory used > 1 GiB, or utilization > 5 % in a 2 s sample;
-  - a non-infrastructure container was given the GPU (`NVIDIA_VISIBLE_DEVICES`/`--gpus` containing the index, UUID or `all`);
+  - a non-infrastructure container was explicitly given the GPU (`NVIDIA_VISIBLE_DEVICES`/`--gpus` containing its index or UUID). A container that only sees `all` GPUs is reported as a warning and does not block: the users of GPUs 0 and 1 never use GPUs 2 and 3, and actual use is caught by the process, memory and utilization checks above;
   - the cooperative lock is held.
 
   With `H100MB_REQUIRE_RESERVATION=1` it also refuses if no window in `~/.config/h100-microbench/reservations.tsv` covers now.
