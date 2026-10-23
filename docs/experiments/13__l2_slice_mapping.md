@@ -1,5 +1,7 @@
 # 13 — Address → L2 slice / partition mapping via per-slice hardware counters, and the slice hash
 
+> **Device configuration:** runs under [`docs/context/10__device_config.md`](../context/10__device_config.md): H100 NVL (GPU 2), 132 SMs, 60 MiB L2, HBM3 3.94 TB/s, SM clock locked at 1635 MHz, power limit 400 W, ECC on, CUDA 12.9.1 `sm_90a`. Reference numbers quoted in this spec come from **other chips and configurations** (H800 PCIe, H100 PCIe, H100 SXM, H200, RTX 5090; see `10` §4). They are kept unchanged as intuition and reproduction targets, not as expectations for this device.
+
 ## Goal
 Recover, without timing, which of the 80 L2 slices (and which partition) each 128 B line maps to, using Nsight Compute's per-instance `lts__` counters; derive the partition hash and as much of the slice hash as the accessible address bits allow; produce `results/13__l2_slice_map.csv` (line offset → slice id → partition) used by `15` to choose target slices and by `08`/`14` to label latency classes.
 

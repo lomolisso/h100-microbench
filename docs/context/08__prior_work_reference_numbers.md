@@ -7,6 +7,7 @@ Rules for using these numbers:
 1. Record the GPU variant (H100 SXM5 = 132 SMs, H100 PCIe = 114 SMs, H800 PCIe = 114 SMs, H200 = 132 SMs) and, where known, the SM clock. Cycle counts are comparable across variants; TB/s numbers are not (clock and SM count differ).
 2. "Cycles" below are SM clock cycles measured with `clock()`/`clock64()` (per-SM counter) unless stated otherwise.
 3. Papers disagree with each other by 5–15 % on identical quantities (different measurement loops, compilers, clocks). Our tolerance for "reproduced" is ±10 % for latency, ±15 % for bandwidth unless an experiment file says otherwise.
+4. **None of these numbers come from our device.** We run an H100 NVL (132 SMs, 60 MiB L2, HBM3 3.94 TB/s) with the SM clock locked at 1635 MHz, CUDA 12.9.1 (`10__device_config.md`). Each source's chip and configuration is given in its heading below and side by side with ours in `10__device_config.md` §4. Keep the numbers as intuition and reproduction targets. Name the source chip whenever one is quoted, and apply the comparison rules of `10` §4.
 
 ## P1 — Luo et al., "Dissecting the NVIDIA Hopper Architecture through Microbenchmarking and Multiple Level Analysis", ACM TOCS 2026 (extends IPDPS 2024 "Benchmarking and Dissecting the Nvidia Hopper GPU Architecture", arXiv:2402.13499). GPU: **H800 PCIe** (114 SMs, 1755 MHz, 50 MB L2, HBM2e 2039 GB/s), CUDA 12.6. Code: https://github.com/HPMLL/NVIDIA-Hopper-Benchmark
 
@@ -115,6 +116,8 @@ Rules for using these numbers:
 | H100 FA-3 profiling note | SM clock locked to 1.5 GHz for reproducible ncu cycles; ncu flags `--cache-control all --pipeline-boost-state stable` | H100 | — |
 
 ## Consolidated H100 cheat-sheet (medians across sources)
+
+Medians of the sources above (H800/H100 PCIe, H100 SXM, H200, RTX 5090 where marked), labelled "Expected on H100 SXM5" by those sources. They are not measurements of our H100 NVL at 1635 MHz; see `10__device_config.md` §4.
 
 | Metric | Expected on H100 SXM5 | Sources |
 |---|---|---|

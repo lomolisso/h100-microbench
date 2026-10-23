@@ -1,5 +1,7 @@
 # 08 — L2 partition NUCA: near/far hit latency per SM, first-touch homing, replication, and partition hash bits
 
+> **Device configuration:** runs under [`docs/context/10__device_config.md`](../context/10__device_config.md): H100 NVL (GPU 2), 132 SMs, 60 MiB L2, HBM3 3.94 TB/s, SM clock locked at 1635 MHz, power limit 400 W, ECC on, CUDA 12.9.1 `sm_90a`. Reference numbers quoted in this spec come from **other chips and configurations** (H800 PCIe, H100 PCIe, H100 SXM, H200, RTX 5090; see `10` §4). They are kept unchanged as intuition and reproduction targets, not as expectations for this device.
+
 ## Goal
 For every SM: the near-hit and far-hit L2 latency, which partition it is "near", and the sub-node offset if any; plus confirmation (or refutation) on this card of DGNA's first-touch homing and remote-line replication, and recovery of the XOR partition hash bits accessible through 2 MB pages. Fills the `partition` / `subnode` columns of `03__sm_gpc_topology__map.csv`.
 
@@ -18,7 +20,7 @@ Allocate 1 GB (`cudaMalloc`, 2 MB pages). Base line `L0` at a 2 MB-aligned offse
 Lines first touched by SM A (partition α) are read by SM B (partition β, from `03` candidates): (i) B's first read latency (expected far-hit ≈ 414–470), (ii) B's 2nd…64th reads (if a replica is created in β: drops to near ≈ 258–295; else stays far), (iii) after B's reads, A's read latency (still near?), (iv) after A *writes* the line, B's read latency (replica invalidated?). Use `%globaltimer` + global flags to sequence A and B.
 
 ### K4 — effective capacity
-From one SM: random-permutation chase at 128 B granularity over footprints 16 … 60 MB (steps 2 MB), 3 reps; hit rate from ncu `lts__t_sector_hit_rate.pct` and latency plateau. Lines first touched by (a) the probe SM only, (b) alternately by an SM of each partition. The footprint at which misses begin tells the usable capacity (expect ≈ 32 MB ≈ 65 % if replication halves the far-partition share).
+From one SM: random-permutation chase at 128 B granularity over footprints 16 … 60 MB (steps 2 MB; on this device extend to 80 MB so the sweep passes its 60 MiB L2, `docs/context/10__device_config.md` §3), 3 reps; hit rate from ncu `lts__t_sector_hit_rate.pct` and latency plateau. Lines first touched by (a) the probe SM only, (b) alternately by an SM of each partition. The footprint at which misses begin tells the usable capacity (expect ≈ 32 MB ≈ 65 % if replication halves the far-partition share).
 
 ### K5 — per-SM signature
 For every one of the 132 SMs: K1 against a fixed panel of 256 lines (128 known-near-for-partition-α, 128 known-near-for-β, obtained from K2 on two reference SMs, all first-touched by their near SM); report the two medians → `partition` label and the near/far latencies per SM; the residual spread among near-latencies across SMs of the same partition reveals the sub-node (+≈32) structure → `subnode` label.

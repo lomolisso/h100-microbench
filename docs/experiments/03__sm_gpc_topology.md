@@ -1,5 +1,7 @@
 # 03 — Mapping logical SM ids to GPCs (and TPC pairs) on this card
 
+> **Device configuration:** runs under [`docs/context/10__device_config.md`](../context/10__device_config.md): H100 NVL (GPU 2), 132 SMs, 60 MiB L2, HBM3 3.94 TB/s, SM clock locked at 1635 MHz, power limit 400 W, ECC on, CUDA 12.9.1 `sm_90a`. Reference numbers quoted in this spec come from **other chips and configurations** (H800 PCIe, H100 PCIe, H100 SXM, H200, RTX 5090; see `10` §4). They are kept unchanged as intuition and reproduction targets, not as expectations for this device.
+
 ## Goal
 Produce `results/03__sm_gpc_topology__map.csv`: for every `%smid` on the device, its co-scheduling domain (GPC id), inferred TPC mate, and (later, from `08`/`15`) its L2 partition and sub-node. Every heatmap in later experiments orders SMs by this map, and the 3D-stacking sensitivity analysis uses it to define "physical distance".
 

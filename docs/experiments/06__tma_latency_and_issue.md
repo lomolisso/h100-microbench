@@ -1,5 +1,7 @@
 # 06 — TMA / bulk-copy latency, issue cost, and concurrency limits (async proxy, global → shared)
 
+> **Device configuration:** runs under [`docs/context/10__device_config.md`](../context/10__device_config.md): H100 NVL (GPU 2), 132 SMs, 60 MiB L2, HBM3 3.94 TB/s, SM clock locked at 1635 MHz, power limit 400 W, ECC on, CUDA 12.9.1 `sm_90a`. Reference numbers quoted in this spec come from **other chips and configurations** (H800 PCIe, H100 PCIe, H100 SXM, H200, RTX 5090; see `10` §4). They are kept unchanged as intuition and reproduction targets, not as expectations for this device.
+
 ## Goal
 For the async-proxy load path (rows 10, 13, 21 of `docs/context/02__memory_access_taxonomy.md`): (1) end-to-end latency of one bulk copy from L2 and from HBM as a function of footprint (the async twin of `04` K2), (2) the fixed costs: issue gap per command, mbarrier polling granularity, completion overhead vs payload size, (3) the per-SM concurrency limit (transactions in flight) and the per-SM read bandwidth limit, (4) tensor vs non-tensor and box-shape effects on latency.
 

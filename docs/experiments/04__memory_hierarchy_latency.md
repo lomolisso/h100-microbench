@@ -1,5 +1,7 @@
 # 04 — Generic-proxy latency of every local memory level: SMEM, L1, L2 (near/far), HBM (near/far)
 
+> **Device configuration:** runs under [`docs/context/10__device_config.md`](../context/10__device_config.md): H100 NVL (GPU 2), 132 SMs, 60 MiB L2, HBM3 3.94 TB/s, SM clock locked at 1635 MHz, power limit 400 W, ECC on, CUDA 12.9.1 `sm_90a`. Reference numbers quoted in this spec come from **other chips and configurations** (H800 PCIe, H100 PCIe, H100 SXM, H200, RTX 5090; see `10` §4). They are kept unchanged as intuition and reproduction targets, not as expectations for this device.
+
 ## Goal
 Average dependent-access latency in SM cycles for paths 1, 3, 4, 5 of `docs/context/00__h100_architecture.md` §6 using ordinary `ld` instructions, as a function of working-set size (the classic latency-vs-footprint curve) and with per-access classification of the L2/DRAM near/far cases. These numbers are the dotted reference lines in all DSMEM figures.
 
@@ -31,7 +33,7 @@ No kernel; `06__tma_latency_and_issue` reuses K2's permutation so that generic v
 `04__latency__summary.csv`: `level ∈ {smem, smem_dsmem_if, l1, l2_near, l2_far, dram_near, dram_far}, median_cycles, p5, p95, n`.
 
 ## Figures
-1. Latency vs footprint (log x), one curve per load variant and per probe SM; dotted lines at 128 KB, 25 MB, 50 MB.
+1. Latency vs footprint (log x), one curve per load variant and per probe SM; dotted lines at 128 KB, 25 MB, 50 MB (the 25/50 MB marks are the 50 MB-L2 chips of prior work), plus this device's 60 MiB L2 and its per-partition share from 08 (`docs/context/10__device_config.md` §3).
 2. Histogram of per-access cycles for 8 MB and 256 MB with K-means centres annotated (reproduce P1 Table 4).
 3. Variant A vs B per probe SM (first-touch effect).
 

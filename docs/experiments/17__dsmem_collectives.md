@@ -1,5 +1,7 @@
 # 17 — Intra-cluster collectives on the hardware primitives: AllReduce, AllGather, ReduceScatter, AlltoAll (and Broadcast)
 
+> **Device configuration:** runs under [`docs/context/10__device_config.md`](../context/10__device_config.md): H100 NVL (GPU 2), 132 SMs, 60 MiB L2, HBM3 3.94 TB/s, SM clock locked at 1635 MHz, power limit 400 W, ECC on, CUDA 12.9.1 `sm_90a`. Reference numbers quoted in this spec come from **other chips and configurations** (H800 PCIe, H100 PCIe, H100 SXM, H200, RTX 5090; see `10` §4). They are kept unchanged as intuition and reproduction targets, not as expectations for this device.
+
 ## Goal
 Measure the latency (small messages) and bandwidth (large messages) of the four collectives inside one thread block cluster for cluster sizes 2–16, implemented only with hardware-supported data-movement primitives (multicast TMA, bulk puts, bulk reduce-puts, `st.async`/`red.async`, remote atomics) and the cheapest correct completion mechanism (per-destination mbarrier). Decompose each into data-movement time and synchronisation time, compare algorithms on the same fabric, and produce the per-primitive cost model the 3D-stacked-topology study will re-evaluate.
 

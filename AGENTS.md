@@ -21,6 +21,7 @@ docs/
     07__profiling_tools.md               Nsight Compute flags and verified gh100 metric names (DSMEM = `dshared`, TMA = `tma`), SASS map, nsys, clocks
     08__prior_work_reference_numbers.md  every H100-silicon number from the 5 reference papers + blog, with tolerances
     09__measurement_conventions.md       timers, clock locking, placement control, cache control, statistics, CSV schema, notebook layout
+    10__device_config.md                 THE device (H100 NVL) and the single fixed run configuration (locked clock, limits); prior-work chips side by side
   experiments/                 ← one self-contained experiment SPEC per file (kernel design, sweeps, CSV columns, figures, pass criteria, ncu metrics)
     01__timers_and_harness.md … 18__access_type_summary.md
   research_notes/              ← raw research notes the context files were distilled from (PTX ISA, CUDA API, Nsight, repos, literature)
@@ -77,7 +78,7 @@ Independent groups that can be implemented in parallel once 01–03 exist: {04, 
 | Reproduce paper numbers and point it out | docs/context 08 tolerances; every notebook §5 "Reproduction of prior work"; 18 flags |
 
 ## Rules for the implementing agents (non-negotiable)
-1. Follow `docs/context/09__measurement_conventions.md` for timers, clock locking, placement control, cache control, repetitions, CSV schema and notebook layout. Mandatory CSV columns come first in every file; raw per-sample rows are kept.
+1. Run every experiment under the configuration in `docs/context/10__device_config.md` (deviations only in a spec section "Device-config deviations"). Follow `docs/context/09__measurement_conventions.md` for timers, clock locking, placement control, cache control, repetitions, CSV schema and notebook layout. Mandatory CSV columns come first in every file; raw per-sample rows are kept.
 2. Use the exact PTX forms in `docs/context/02–05` (all validated with ptxas 12.9 for sm_90a). Compile with `-arch=sm_90a -O3 -lineinfo` (the shared `experiments/harness/Makefile.inc` does this). Dump SASS of every binary to `results/sass/` and show the timed loop in the notebook.
 3. Record `%smid` (and cluster ids/ranks) for every block that produces a number; assert 1 CTA/SM where the spec says so.
 4. Use the Nsight Compute metric names in `docs/context/07__profiling_tools.md` (verified for gh100: DSMEM traffic is `*_mem_dshared*`, TMA is `*_op_tma_*`, L2 fabric is `lts__t_sectors_srcunit_ltcfabric`, L2→L1 fills are `l1tex__m_xbar2l1tex_read_bytes_mem_lg_op_ld`); run ncu with `--clock-control none --cache-control <as specified> --csv --page raw --print-units base --print-metric-name name`; verify unconfirmed items listed in `docs/context/07` §8 on the device first (`ncu --query-metrics`).

@@ -19,7 +19,7 @@ Rules:
 
 ## 2. Clock control
 
-- Lock clocks before every run: SM clock to a fixed value (`nvidia-smi -lgc <MHz>,<MHz>`; use the **base** clock reported by `nvidia-smi -q -d CLOCK` → "Default Applications Clocks" — on H100 SXM5 this is 1590 MHz? **record the value that `nvidia-smi` actually reports**, do not hard-code) and memory clock (`nvidia-smi -lmc`). Record both in every CSV row (`sm_clock_mhz`, `mem_clock_mhz`).
+- Lock the SM clock before every run to the value fixed in `10__device_config.md` §2 (1635 MHz on this H100 NVL). It was chosen for this card by `tools/clocktest/select_clock.sh` as the highest clock sustained without throttling under the suite's heaviest load. Lock it with `tools/run --profile --lock-sm-mhz 1635`, which runs `nvidia-smi -lgc` and resets on exit. Earlier versions of this rule used the SXM5 base clock (≈ 1590 MHz on H100 SXM5), which does not apply to this card: its "Default Applications Clocks" value is its 1785 MHz maximum. Do not lock the memory clock: HBM3 runs at its fixed 2619 MHz, which every run checks. Record both in every CSV row (`sm_clock_mhz`, `mem_clock_mhz`) as **measured** values, not the requested ones.
 - When profiling with ncu, pass `--clock-control none` so that our `nvidia-smi -lgc` lock stays in force (ncu's own default is `boost` since 2026.1 and was `base` before; never rely on the default). For runs where the kernel's own `clock64()` numbers are the deliverable, run **without** ncu, with `nvidia-smi` locks, and separately with ncu for counters.
 - Report `cudaDeviceProp.clockRate` and the measured `sm__cycles_elapsed.avg.per_second` in the notebook header.
 
@@ -32,7 +32,7 @@ Rules:
 
 ## 4. Cache state control
 
-- L2-resident data: pre-touch the working set with a separate warm-up kernel, keep working set ≤ 20 MB (well under ½ of 50 MB so that it fits in one partition's share) unless the experiment is about L2 capacity.
+- L2-resident data: pre-touch the working set with a separate warm-up kernel, keep working set ≤ 20 MB (well under half of this device's 60 MiB L2, and of the 50 MB L2 of the prior-work chips, so that it fits in one partition's share; `10__device_config.md` §3) unless the experiment is about L2 capacity.
 - DRAM-resident data: working set ≥ 256 MB with random (shuffled) chain order so that neither L2 nor its prefetch helps; flush L2 between repetitions by streaming a 128 MB scratch buffer (or ncu `--cache-control all`).
 - L1 bypass: use `ld.global.cg` (or `__ldcg`) when L2 is the target; L1-resident: `ld.global.ca` with working set ≤ 128 KB per SM.
 - Disable the persisting-L2 window unless the experiment uses it (`cudaCtxResetPersistingL2Cache` at start).

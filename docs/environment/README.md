@@ -39,7 +39,8 @@ tools/env verify [--gpu N] [--profile]   # toolchain + 32-thread probe + 1-metri
 tools/run --no-gpu -- make -C experiments/01__timers_and_harness       # build (no GPU)
 tools/run -- make -C experiments/01__timers_and_harness run            # run on GPU 2
 tools/run --gpu 3 -- ...                                               # GPU 3 only when named explicitly
-tools/run --profile --lock-sm-mhz 1785 -- make -C experiments/NN run   # ncu counters + locked clocks
+tools/run --profile --lock-sm-mhz 1635 -- make -C experiments/NN run   # ncu counters + the project's locked clock (docs/context/10)
+tools/clocktest/select_clock.sh [--gpu N]  # re-run the clock selection (only if power limit/driver/card change)
 tools/run --no-gpu -- jupyter nbconvert --execute --to notebook --inplace experiments/NN/NN.ipynb
 tools/run [--no-gpu]            # interactive shell
 ```

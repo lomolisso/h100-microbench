@@ -1,5 +1,7 @@
 # 16 — Bandwidth and completion overhead of every async-proxy path: TMA/bulk G→S, G→R, multicast, S→R put, reduce-put, S→G store, reduce-store, tensor vs non-tensor
 
+> **Device configuration:** runs under [`docs/context/10__device_config.md`](../context/10__device_config.md): H100 NVL (GPU 2), 132 SMs, 60 MiB L2, HBM3 3.94 TB/s, SM clock locked at 1635 MHz, power limit 400 W, ECC on, CUDA 12.9.1 `sm_90a`. Reference numbers quoted in this spec come from **other chips and configurations** (H800 PCIe, H100 PCIe, H100 SXM, H200, RTX 5090; see `10` §4). They are kept unchanged as intuition and reproduction targets, not as expectations for this device.
+
 ## Goal
 Per-SM B/cycle and GPU-wide TB/s for rows 10–21 of `docs/context/02__memory_access_taxonomy.md`, with the fixed completion overhead of each mechanism (mbarrier vs bulk group) separated from the streaming rate; the multicast fan-out gain; and the cost of hardware reductions (bulk reduce into DSMEM and into L2) versus plain copies. Together with `05` (generic) and `11` (DSMEM generic), this completes the "every access type" bandwidth table.
 
