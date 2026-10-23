@@ -18,3 +18,10 @@ __pycache__/
 *.nsys-rep
 *.sqlite
 ncu.log
+
+# raw data stays on this machine (docs/context/09 §6); only results/sass/ is tracked
+experiments/*/results/*
+!experiments/*/results/sass/
+!experiments/*/results/sass/*.sass
+!experiments/*/results/sass/.gitkeep
+!experiments/*/results/.gitkeep

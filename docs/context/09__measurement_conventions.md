@@ -40,7 +40,7 @@ Rules:
 ## 5. Statistical treatment
 
 - Each (configuration) point: ≥ 5 independent kernel launches after 2 warm-up launches; inside a kernel, latency loops iterate ≥ 4096 dependent accesses (p-chase) or ≥ 1024 instruction repetitions.
-- CSV rows store **raw per-launch (or per-block) values**, never only aggregates. Notebooks compute median, mean, std, p5/p95, and plot median with p5–p95 error bars.
+- CSV rows store **raw per-launch (or per-block) values**, never only aggregates, within the size budget of §6 (beyond it, exact lossless reductions). Notebooks compute median, mean, std, p5/p95, and plot median with p5–p95 error bars.
 - For latency-class discovery (near/far L2, DRAM channel distance) use per-access samples (one row per access with `addr_offset`, `smid`, `cycles`), then cluster with K-means (k chosen by elbow, state SD/CV per cluster as in Luo et al.).
 - Discard a launch if the measured `%smid` set differs from the intended placement, or if `nvidia-smi` reported a clock-throttle event (read `clocks_event_reasons` before/after).
 
@@ -57,6 +57,8 @@ Rules:
   - Emit one complete row per `write()`. `fflush` after every launch, and `fsync` at the end of every configuration, so a kill loses at most the configuration in progress.
   - Hold an exclusive `flock` on the CSV while appending, because two runs (e.g. GPU 2 and GPU 3) may append to the same file.
   - Run registry `results/<NN__name>__runs.csv` (`run_id, started_iso, finished_iso, status, gpu_uuid, cmdline`). Append a `status=started` row before the first sample and a `status=complete` row after the last flush. A `run_id` without a `complete` row is **partial**. Notebooks label it as partial and never mix it silently with complete runs.
+- **Raw data stays on this machine.** Everything under `results/` except `results/sass/` (CSVs, run registry, clock and nvidia-smi logs, ncu/nsys exports) is gitignored: never committed, never pushed, never deleted. Its only copy is the main checkout on NFS (`~/work/fa2026/iacoma/h100-microbench/experiments/<NN__name>/results/`). Raw files written inside a git worktree disappear with it: copy them to the same paths in the main checkout before the worktree is removed, without overwriting existing files. The executed notebook is the published result: its stored outputs must contain every figure and table, so that it renders on GitHub without the data.
+- **Size budget (no huge CSVs).** Before a run, estimate rows × bytes per row (≈ 80 B of mandatory columns + the experiment's own columns) for every results file and state the sizes in the plan. Keep each file ≤ 100 MB and an experiment's results ≤ a few hundred MB, counting later re-runs appended to the same file. Never let a file reach GiB size. Where raw per-sample rows would exceed the budget, write exact lossless reductions instead of raw dumps or arbitrary caps: `(value, count)` histograms over all samples, fixed-size windowed series covering the whole run, and per-launch summary rows.
 
 ## 7. Kernel hygiene
 
