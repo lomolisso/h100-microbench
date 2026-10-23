@@ -1,0 +1,27 @@
+# 18 — Roll-up: latency (cycles) and bandwidth (TB/s GPU-wide, B/cycle/SM) for every memory-access type
+
+## Goal
+No new kernels. One notebook that reads the results CSVs of `04, 05, 06, 09, 11, 12, 16` (and `07` for completion costs) and produces the master table and figures requested in the project brief: for every access type in `docs/context/02__memory_access_taxonomy.md` §2, the median dependent latency, the per-SM bandwidth, the GPU-wide bandwidth, the completion mechanism and its fixed overhead, the SASS opcode, and a ✔/✘ reproduction flag against `docs/context/08__prior_work_reference_numbers.md`.
+
+## Inputs (file → rows of the taxonomy)
+- `04__latency__summary.csv` → rows 1, 3 (local), 23 (L1/L2/HBM latency by class).
+- `05__bandwidth__*.csv` → rows 1–2, 23–24 bandwidth.
+- `06__tma__chase.csv`, `06__tma__completion.csv` → rows 10, 13, 21 latency + completion overhead.
+- `09__dsmem_latency__chase.csv`, `09__dsmem_latency__visibility.csv` → rows 3–6 latency/visibility.
+- `11__dsmem_bw__fits.csv` → rows 4–5, 15 bandwidth.
+- `12__dsmem_atomics__*.csv` → rows 6–9.
+- `16__async__fits.csv` → rows 10–21 bandwidth and intercepts.
+- `07__sync__primitives.csv` → completion-wait costs.
+- `01__timers__clock_domains.csv`, mandatory columns → clock used for cycles↔ns and B/cycle↔TB/s.
+
+## Table columns
+`row, path, instruction, proxy, completion, latency_cycles_median, latency_ns, bpc_per_sm, tbps_gpu_wide, completion_overhead_cycles, sass_opcode, reference_value, reference_source, reproduced (✔/✘/n.a.)`.
+
+## Figures
+1. **Latency ladder**: horizontal bar chart of median latency (cycles) for SMEM, SMEM-via-DSMEM-interface, DSMEM remote (CS 2 … 16), L1, L2 near, L2 far, HBM near, HBM far, TMA L2, TMA HBM, remote atomic, st.async visibility, plain remote-store visibility, cluster.sync, mbarrier wait; prior-work values as hollow markers.
+2. **Bandwidth ladder**: GPU-wide TB/s for SMEM (aggregate), L1, L2, HBM, DSMEM ring ld/st/TMA put (CS 2…16), TMA G→S, multicast ×4/×8/×16 (delivered), S→G, reduce-store, reduce-put; dotted lines = DRAM peak 3.35 TB/s and `05` L2.
+3. **The two user-requested histograms** (from `09` and `11`): SM-to-SM latency per cluster size with GMEM latency dotted; SM-to-SM bandwidth per cluster size with GMEM bandwidth dotted.
+4. Completion-overhead bars: mbarrier (TMA load), bulk group (TMA store), st.async, cluster.sync, flag — in cycles, next to the pure transfer time of a 16 KB payload.
+
+## Pass criteria
+Every taxonomy row has either a measured value or an explicit "not measurable because …" note; all reproduction flags computed with the tolerances in `docs/context/08__prior_work_reference_numbers.md`.

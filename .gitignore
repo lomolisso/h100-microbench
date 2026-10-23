@@ -4,3 +4,17 @@
 *.ptx
 *.cubin
 *.fatbin
+
+# build outputs
+*.o
+*.so
+*.sass
+!experiments/*/results/sass/*.sass
+experiments/*/bin/
+experiments/harness/bin/
+__pycache__/
+.ipynb_checkpoints/
+*.ncu-rep
+*.nsys-rep
+*.sqlite
+ncu.log
