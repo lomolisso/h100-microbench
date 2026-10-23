@@ -5,7 +5,10 @@
 NVCC      ?= nvcc
 ARCH      ?= sm_90a
 NVCCFLAGS ?= -arch=$(ARCH) -O3 -lineinfo -std=c++17 -Xptxas -v -Xptxas -warn-spills -I../harness
-LDFLAGS   ?= -lcuda -lnvidia-ml
+# Link libcuda/libnvidia-ml through the toolkit stubs (the host has only the .so.1 runtime libraries);
+# at run time the driver's real .so.1 is loaded by soname.
+CUDA_HOME ?= $(abspath $(dir $(shell command -v $(NVCC)))..)
+LDFLAGS   ?= -L$(CUDA_HOME)/lib64/stubs -lcuda -lnvidia-ml
 BIN_DIR   := bin
 SASS_DIR  := results/sass
 

@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+# Run a command (or an interactive shell) in the project container on ONE authorized GPU.
+#
+#   tools/run [options] [--] [command ...]
+#     --gpu N            GPU index (default 2; 3 must be given explicitly; nothing else is allowed)
+#     --no-gpu           no GPU at all (builds, notebooks); skips preflight and lock
+#     --profile          container gets CAP_SYS_ADMIN (ncu counters, nvidia-smi -lgc); GPU mode only
+#     --lock-sm-mhz MHZ  with --profile: lock the SM clock for the duration, reset on exit
+#
+# The container mounts $HOME (NFS) at the same path and runs as you, so it reads sources/binaries
+# from the repo and writes results straight back into it. It is removed when the command ends
+# (also on Ctrl-C / kill of this script). GPU mode: preflight (tools/gpu check) → cooperative lock
+# held for the whole run → container that can only see the selected GPU, verified inside it.
+set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+
+gpu=$DEFAULT_GPU; use_gpu=1; profile=0; lock_mhz=""
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --gpu) gpu=$2; shift 2 ;;
+        --no-gpu) use_gpu=0; shift ;;
+        --profile) profile=1; shift ;;
+        --lock-sm-mhz) lock_mhz=$2; shift 2 ;;
+        --) shift; break ;;
+        -h|--help) sed -n '2,14p' "$0"; exit 0 ;;
+        -*) die "unknown option $1" ;;
+        *) break ;;
+    esac
+done
+(( $# )) || set -- bash
+(( profile && !use_gpu )) && die "--profile needs a GPU"
+[[ -n "$lock_mhz" ]] && (( !profile )) && die "--lock-sm-mhz requires --profile"
+
+image_present || die "image $IMAGE not built — run: tools/env build"
+[[ "$PWD/" == "$HOME/"* ]] || die "run from inside \$HOME (only $HOME is mounted)"
+free=$(containerd_free_gb)
+(( free >= MIN_RUN_FREE_GB )) || die "container store (shared scratch volume) has ${free} GB free (< ${MIN_RUN_FREE_GB} GB); not starting a container on a full disk other users depend on"
+
+if (( use_gpu )); then
+    resolve_gpu "$gpu"
+    "$H100MB_ROOT/tools/gpu" check --gpu "$GPU_IDX" || exit 1
+    # Hold the cooperative lock until this script exits (fd 9 is inherited by the docker client).
+    mkdir -p "$LOCK_DIR" 2>/dev/null && chmod 1777 "$LOCK_DIR" 2>/dev/null || true
+    lockf=$LOCK_DIR/gpu$GPU_IDX.lock
+    exec 9<>"$lockf"; chmod 0666 "$lockf" 2>/dev/null || true
+    flock -n 9 || die "GPU $GPU_IDX lock was taken just now: $(cat "$lockf")"
+    : > "$lockf"; printf 'user=%s pid=%s host=%s since=%s cmd=%q\n' "$USER" "$$" "$(hostname -s)" "$(date -Iseconds)" "$*" >&9
+    say "Lock acquired: $lockf"
+    name="h100mb-$USER-gpu$GPU_IDX-$$"
+else
+    name="h100mb-$USER-nogpu-$$"
+fi
+
+args=(--rm --init --name "$name" --label h100mb.owner="$USER" -e HOME="$HOME" -e USER="$USER"
+      # Only the whole home can be bind-mounted: the root daemon is squashed to nobody on NFS and
+      # cannot stat anything inside the 0700 home. The process inside runs as $USER, so access works.
+      --mount "type=bind,src=$HOME,dst=$HOME"
+      # Keep the container's own scratch writes in RAM, not in its layer on the shared scratch volume.
+      --tmpfs /tmp:rw,exec,size=8g)
+[[ -t 0 && -t 1 ]] && args+=(-it)
+
+if (( use_gpu )); then
+    args+=(--label h100mb.gpu="$GPU_IDX" --runtime=nvidia --gpus "device=$UUID"
+           -e NVIDIA_VISIBLE_DEVICES="$UUID" -e CUDA_VISIBLE_DEVICES=0 -e H100MB_GPU_UUID="$UUID")
+else
+    args+=(--runtime=runc -e NVIDIA_VISIBLE_DEVICES=void)
+fi
+
+if (( profile )); then
+    # Root in the container only for clock locking; the entrypoint drops to $USER keeping
+    # CAP_SYS_ADMIN as an ambient capability.
+    args+=(--user 0:0 --cap-add SYS_ADMIN -e H100MB_UID="$(id -u)" -e H100MB_GID="$(id -g)"
+           -e H100MB_LOCK_SM_MHZ="$lock_mhz")
+else
+    args+=(--user "$(id -u):$(id -g)")
+fi
+# No `-w`: runc resolves/creates the working directory as root, which NFS root-squash forbids inside
+# $HOME. Change directory as the user instead, after the entrypoint has dropped privileges.
+args+=(-e H100MB_CWD="$PWD")
+set -- bash -c 'cd "$H100MB_CWD" && exec "$@"' h100mb "$@"
+
+# If this script is interrupted or killed (not -9), stop our container so nothing outlives the lock;
+# `docker stop` sends SIGTERM, which lets the entrypoint reset a clock lock before exiting.
+cleanup() { docker stop -t 15 "$name" >/dev/null 2>&1 || true; }
+trap cleanup EXIT
+trap 'exit 130' INT TERM HUP
+
+rc=0
+if [[ -t 0 && -t 1 ]]; then
+    docker run "${args[@]}" "$IMAGE" "$@" || rc=$?            # interactive: Ctrl-C goes to docker directly
+else
+    # Batch: background + wait, so a TERM to this script runs the trap immediately (bash defers traps
+    # while a foreground child runs).
+    docker run "${args[@]}" "$IMAGE" "$@" & wait $! || rc=$?
+fi
+exit $rc

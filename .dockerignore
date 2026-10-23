@@ -1,0 +1,4 @@
+# Build context = repo root, but the image only needs these.
+*
+!requirements.lock
+!docker/

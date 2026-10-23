@@ -51,6 +51,12 @@ Rules:
 - Then the experiment-specific columns defined in the experiment file. Units go in the column name: `_cycles`, `_ns`, `_bytes`, `_bpc` (bytes per cycle), `_tbps`, `_pct`.
 - ncu outputs: exported with `ncu --csv --page raw --print-units base` into `<NN__name>__ncu_<variant>.csv` (raw metric names as columns), joined in the notebook on `launch_idx`/`kernel name`.
 - Never overwrite a results file: append `run_id` (ISO timestamp) and let the notebook pick the latest run or all runs.
+- **Crash-safe writing** (a run can be killed at any moment; only rows already on disk survive):
+  - Write rows **directly** into `experiments/<NN__name>/results/` (NFS). Never write results to `/tmp`: inside the container it is RAM and disappears with the container. Never stage results elsewhere and copy them later.
+  - Open in append mode; write the header only if the file is new or empty. Never truncate, rewrite or sort an existing results file.
+  - Emit one complete row per `write()`. `fflush` after every launch, and `fsync` at the end of every configuration, so a kill loses at most the configuration in progress.
+  - Hold an exclusive `flock` on the CSV while appending, because two runs (e.g. GPU 2 and GPU 3) may append to the same file.
+  - Run registry `results/<NN__name>__runs.csv` (`run_id, started_iso, finished_iso, status, gpu_uuid, cmdline`). Append a `status=started` row before the first sample and a `status=complete` row after the last flush. A `run_id` without a `complete` row is **partial**. Notebooks label it as partial and never mix it silently with complete runs.
 
 ## 7. Kernel hygiene
 
