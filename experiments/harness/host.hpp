@@ -21,6 +21,7 @@
  *                    (explicit_cluster: also for a cluster of 1); prepare() fills the launch configuration
  *                    once so that a timed launch is a bare cudaLaunchKernelEx;
  *                    all_distinct()/distinct_within_clusters() check %smid placement.
+ *   hb::SmClaim      host side of claim_target_sm: pin a one-warp block to a chosen SM without reserving its smem.
  *   hb::L2Flusher    streams a 128 MB buffer (read-modify-write) to evict L2.
  *   hb::warmup       runs a launch functor n times, synchronising after each.
  */
@@ -399,6 +400,27 @@ inline bool distinct_within_clusters(const std::vector<uint32_t>& smid, int cs) 
     }
     return true;
 }
+
+// Host side of claim_target_sm (harness.cuh): a 2-word claim in device memory. Launch blocks() one-warp blocks;
+// after the launch, ok(target) tells whether a block ran on `target` (if not, re-launch and count the retry).
+class SmClaim {
+  public:
+    SmClaim() { CUDA_CHECK(cudaMalloc(&d_, 2 * sizeof(uint32_t))); }
+    ~SmClaim() { cudaFree(d_); }
+    SmClaim(const SmClaim&) = delete;
+    SmClaim& operator=(const SmClaim&) = delete;
+    uint32_t* ptr() const { return d_; }
+    static int blocks(int sm_count) { return 2 * sm_count; }
+    void reset(cudaStream_t s = nullptr) { CUDA_CHECK(cudaMemsetAsync(d_, 0, 2 * sizeof(uint32_t), s)); }
+    bool ok(uint32_t target) const {
+        uint32_t h[2];
+        CUDA_CHECK(cudaMemcpy(h, d_, sizeof h, cudaMemcpyDeviceToHost));
+        return h[0] != 0 && h[1] == target;
+    }
+
+  private:
+    uint32_t* d_ = nullptr;
+};
 
 // ---------------------------------------------------------------- cache state and warm-up
 static __global__ void hb_flush_kernel(uint4* buf, size_t n, unsigned salt) {

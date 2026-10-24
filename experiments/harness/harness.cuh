@@ -6,7 +6,7 @@
  * PTX forms follow the project's validated templates (ptxas 12.9, sm_90a):
  *   timers / placement   read_clock64, read_clock32, read_globaltimer, read_timers_pair,
  *                        read_clock64_after, read_timers_after, TIMED_REGION_BEGIN/END,
- *                        read_smid, read_nsmid, read_laneid, read_cluster_regs
+ *                        read_smid, read_nsmid, read_laneid, read_cluster_regs, claim_target_sm
  *   cluster / DSMEM      smem_u32, mapa_u32, cluster_arrive{,_release,_relaxed}, cluster_wait{,_acquire},
  *                        cluster_sync, ld_dsmem_u32, st_dsmem_u32
  *   mbarrier             mbar_init, mbar_inval, fence_mbarrier_init, mbar_arrive, mbar_arrive_expect_tx,
@@ -66,6 +66,19 @@ __device__ __forceinline__ TimerPair read_timers_after(uint64_t dep, uint64_t ze
 __device__ __forceinline__ uint32_t read_smid()   { uint32_t r; asm volatile("mov.u32 %0, %%smid;"   : "=r"(r)); return r; }
 __device__ __forceinline__ uint32_t read_nsmid()  { uint32_t r; asm volatile("mov.u32 %0, %%nsmid;"  : "=r"(r)); return r; }
 __device__ __forceinline__ uint32_t read_laneid() { uint32_t r; asm volatile("mov.u32 %0, %%laneid;" : "=r"(r)); return r; }
+
+// Pin a single-warp block to SM `target` without reserving that SM's shared memory (the L1 carveout stays free):
+// launch many one-warp blocks (hb::SmClaim::blocks()); the first block that runs on `target` wins the claim and gets
+// true in all its lanes, every other block should return at once. claim[0] = 0 before the launch (SmClaim::reset);
+// afterwards claim[0] = winner blockIdx.x + 1 and claim[1] = its %smid.
+__device__ __forceinline__ bool claim_target_sm(uint32_t target, uint32_t* claim) {
+    uint32_t won = 0;
+    if (threadIdx.x == 0 && read_smid() == target && atomicCAS(claim, 0u, blockIdx.x + 1) == 0u) {
+        claim[1] = target;
+        won = 1;
+    }
+    return __shfl_sync(0xffffffffu, won, 0) != 0;
+}
 
 struct ClusterRegs { uint32_t clusterid_x, clusterid_y, clusterid_z, ctarank, nctarank; };
 __device__ __forceinline__ ClusterRegs read_cluster_regs() {
