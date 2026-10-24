@@ -18,6 +18,12 @@
  *   cp.async (Ampere)    cp_async_cg16, cp_async_commit, cp_async_wait_all
  *   fences / misc        fence_proxy_async_shared_cta (+ other fences), bar_sync0, elect_one, nanosleep_ns,
  *                        relaxed/acquire/release global loads and stores at .gpu scope (cross-SM flags)
+ *   synchronisation (07) bar_sync_n, bar_arrive_n, bar_warp_sync, non-aligned cluster_*_na, fence_acq_rel_cta,
+ *                        fence_sc_cta, fence_sc_cluster, mbar_arrive_state, mbar_arrive_cnt_state,
+ *                        mbar_arrive_expect_tx_state, mbar_arrive_drop_state, mbar_expect_tx, mbar_complete_tx,
+ *                        mbar_remote_arrive_relaxed, st_async_u32, red_async_add_u32 (mbarrier complete_tx in the
+ *                        destination CTA), DSMEM flags {ld,st}_{volatile,relaxed,acquire/release}_cluster_u32,
+ *                        red_release_cluster_add_u32, atom_exch_acq_rel_cluster_u32
  *
  * Timed-region rule: the end timestamp must not be taken before the last measured load has returned.
  * read_*_after(dep, zero) first consumes `dep` (the last loaded value) in an AND with a runtime zero
@@ -230,3 +236,54 @@ __device__ __forceinline__ void st_relaxed_gpu_u32(uint32_t* a, uint32_t v) {
     asm volatile("st.relaxed.gpu.global.u32 [%0], %1;" :: "l"(a), "r"(v) : "memory"); }
 __device__ __forceinline__ void st_release_gpu_u32(uint32_t* a, uint32_t v) {
     asm volatile("st.release.gpu.global.u32 [%0], %1;" :: "l"(a), "r"(v) : "memory"); }
+
+// ---------------------------------------------------------------- synchronisation extras (experiment 07)
+// Named CTA barriers: id 0..15, n = participating threads (multiple of 32).
+__device__ __forceinline__ void bar_sync_n(uint32_t id, uint32_t n)   { asm volatile("bar.sync %0, %1;" :: "r"(id), "r"(n) : "memory"); }
+__device__ __forceinline__ void bar_arrive_n(uint32_t id, uint32_t n) { asm volatile("bar.arrive %0, %1;" :: "r"(id), "r"(n) : "memory"); }
+__device__ __forceinline__ void bar_warp_sync()                        { asm volatile("bar.warp.sync -1;" ::: "memory"); }
+// Cluster barrier without .aligned: may be executed by a subset of a warp's threads (e.g. one active thread per CTA).
+__device__ __forceinline__ void cluster_arrive_release_na() { asm volatile("barrier.cluster.arrive.release;" ::: "memory"); }
+__device__ __forceinline__ void cluster_arrive_relaxed_na() { asm volatile("barrier.cluster.arrive.relaxed;" ::: "memory"); }
+__device__ __forceinline__ void cluster_wait_acquire_na()   { asm volatile("barrier.cluster.wait.acquire;" ::: "memory"); }
+__device__ __forceinline__ void fence_acq_rel_cta()         { asm volatile("fence.acq_rel.cta;" ::: "memory"); }
+__device__ __forceinline__ void fence_sc_cta()              { asm volatile("fence.sc.cta;" ::: "memory"); }
+__device__ __forceinline__ void fence_sc_cluster()          { asm volatile("fence.sc.cluster;" ::: "memory"); }
+// mbarrier ops that return the arrival state (so that a timer can depend on their completion).
+__device__ __forceinline__ uint64_t mbar_arrive_state(uint32_t bar) {
+    uint64_t s; asm volatile("mbarrier.arrive.shared::cta.b64 %0, [%1];" : "=l"(s) : "r"(bar) : "memory"); return s; }
+__device__ __forceinline__ uint64_t mbar_arrive_cnt_state(uint32_t bar, uint32_t count) {
+    uint64_t s; asm volatile("mbarrier.arrive.shared::cta.b64 %0, [%1], %2;" : "=l"(s) : "r"(bar), "r"(count) : "memory"); return s; }
+__device__ __forceinline__ uint64_t mbar_arrive_expect_tx_state(uint32_t bar, uint32_t bytes) {
+    uint64_t s; asm volatile("mbarrier.arrive.expect_tx.shared::cta.b64 %0, [%1], %2;" : "=l"(s) : "r"(bar), "r"(bytes) : "memory"); return s; }
+__device__ __forceinline__ uint64_t mbar_arrive_drop_state(uint32_t bar) {
+    uint64_t s; asm volatile("mbarrier.arrive_drop.shared::cta.b64 %0, [%1];" : "=l"(s) : "r"(bar) : "memory"); return s; }
+__device__ __forceinline__ void mbar_expect_tx(uint32_t bar, uint32_t bytes) {
+    asm volatile("mbarrier.expect_tx.relaxed.cta.shared::cta.b64 [%0], %1;" :: "r"(bar), "r"(bytes) : "memory"); }
+__device__ __forceinline__ void mbar_complete_tx(uint32_t bar, uint32_t bytes) {
+    asm volatile("mbarrier.complete_tx.relaxed.cta.shared::cta.b64 [%0], %1;" :: "r"(bar), "r"(bytes) : "memory"); }
+__device__ __forceinline__ void mbar_remote_arrive_relaxed(uint32_t rbar) {
+    asm volatile("mbarrier.arrive.relaxed.cluster.shared::cluster.b64 _, [%0];" :: "r"(rbar) : "memory"); }
+// Register → peer smem with complete_tx(4 B) on the peer's mbarrier (a, rbar: .shared::cluster addresses of one peer).
+__device__ __forceinline__ void st_async_u32(uint32_t a, uint32_t v, uint32_t rbar) {
+    asm volatile("st.async.shared::cluster.mbarrier::complete_tx::bytes.u32 [%0], %1, [%2];" :: "r"(a), "r"(v), "r"(rbar) : "memory"); }
+__device__ __forceinline__ void red_async_add_u32(uint32_t a, uint32_t v, uint32_t rbar) {
+    asm volatile("red.async.relaxed.cluster.shared::cluster.mbarrier::complete_tx::bytes.add.u32 [%0], %1, [%2];"
+                 :: "r"(a), "r"(v), "r"(rbar) : "memory"); }
+// DSMEM flags (.shared::cluster addresses, own rank allowed).
+__device__ __forceinline__ uint32_t ld_volatile_cluster_u32(uint32_t a) {
+    uint32_t v; asm volatile("ld.volatile.shared::cluster.u32 %0, [%1];" : "=r"(v) : "r"(a) : "memory"); return v; }
+__device__ __forceinline__ uint32_t ld_relaxed_cluster_u32(uint32_t a) {
+    uint32_t v; asm volatile("ld.relaxed.cluster.shared::cluster.u32 %0, [%1];" : "=r"(v) : "r"(a) : "memory"); return v; }
+__device__ __forceinline__ uint32_t ld_acquire_cluster_u32(uint32_t a) {
+    uint32_t v; asm volatile("ld.acquire.cluster.shared::cluster.u32 %0, [%1];" : "=r"(v) : "r"(a) : "memory"); return v; }
+__device__ __forceinline__ void st_volatile_cluster_u32(uint32_t a, uint32_t v) {
+    asm volatile("st.volatile.shared::cluster.u32 [%0], %1;" :: "r"(a), "r"(v) : "memory"); }
+__device__ __forceinline__ void st_relaxed_cluster_u32(uint32_t a, uint32_t v) {
+    asm volatile("st.relaxed.cluster.shared::cluster.u32 [%0], %1;" :: "r"(a), "r"(v) : "memory"); }
+__device__ __forceinline__ void st_release_cluster_u32(uint32_t a, uint32_t v) {
+    asm volatile("st.release.cluster.shared::cluster.u32 [%0], %1;" :: "r"(a), "r"(v) : "memory"); }
+__device__ __forceinline__ void red_release_cluster_add_u32(uint32_t a, uint32_t v) {
+    asm volatile("red.release.cluster.shared::cluster.add.u32 [%0], %1;" :: "r"(a), "r"(v) : "memory"); }
+__device__ __forceinline__ uint32_t atom_exch_acq_rel_cluster_u32(uint32_t a, uint32_t v) {
+    uint32_t o; asm volatile("atom.acq_rel.cluster.shared::cluster.exch.b32 %0, [%1], %2;" : "=r"(o) : "r"(a), "r"(v) : "memory"); return o; }
