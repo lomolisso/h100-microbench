@@ -11,7 +11,7 @@ No new kernels. One notebook that reads the results CSVs of `04, 05, 06, 09, 11,
 - `06__tma__chase.csv`, `06__tma__completion.csv` → rows 10, 13, 21 latency + completion overhead.
 - `09__dsmem_latency__chase.csv`, `09__dsmem_latency__visibility.csv` → rows 3–6 latency/visibility.
 - `11__dsmem_bw__fits.csv` → rows 4–5, 15 bandwidth.
-- `12__dsmem_atomics__*.csv` → rows 6–9.
+- `12__atomics__summary.csv`, `12__atomics__*.csv`, `12__dsmem_atomics__*.csv` → rows 6–9, 25 (global atomics: L2 near, L2 far, HBM, host memory), 27 (local smem atomics), 28 (atomics through the DSMEM window).
 - `16__async__fits.csv` → rows 10–21 bandwidth and intercepts.
 - `07__sync__primitives.csv` → completion-wait costs.
 - `01__timers__clock_domains.csv`, mandatory columns → clock used for cycles↔ns and B/cycle↔TB/s.
@@ -20,10 +20,12 @@ No new kernels. One notebook that reads the results CSVs of `04, 05, 06, 09, 11,
 `row, path, instruction, proxy, completion, latency_cycles_median, latency_ns, bpc_per_sm, tbps_gpu_wide, completion_overhead_cycles, sass_opcode`.
 
 ## Figures
-1. **Latency ladder**: horizontal bar chart of median latency (cycles) for SMEM, SMEM-via-DSMEM-interface, DSMEM remote (CS 2 … 16), L1, L2 near, L2 far, HBM near, HBM far, TMA L2, TMA HBM, remote atomic, st.async visibility, plain remote-store visibility, cluster.sync, mbarrier wait.
-2. **Bandwidth ladder**: GPU-wide TB/s for SMEM (aggregate), L1, L2, HBM, DSMEM ring ld/st/TMA put (CS 2…16), TMA G→S, multicast ×4/×8/×16 (delivered), S→G, reduce-store, reduce-put; dotted lines = this device's DRAM peak (3.94 TB/s) and the `05` L2 bandwidth.
-3. **The two user-requested histograms** (from `09` and `11`): SM-to-SM latency per cluster size with GMEM latency dotted; SM-to-SM bandwidth per cluster size with GMEM bandwidth dotted.
-4. Completion-overhead bars: mbarrier (TMA load), bulk group (TMA store), st.async, cluster.sync, flag — in cycles, next to the pure transfer time of a 16 KB payload.
+1. **Latency ladder**: horizontal bar chart of median latency (cycles) for SMEM, SMEM-via-DSMEM-interface, DSMEM remote (CS 2 … 16), L1, L2 near, L2 far, HBM near, HBM far, TMA L2, TMA HBM, st.async visibility, plain remote-store visibility, cluster.sync, mbarrier wait.
+2. **Atomic latency ladder** (same axis as 1, each atomic next to the load of the same path): local smem atomic, smem atomic through the DSMEM window, remote DSMEM atomic (CS 2 … 16), global atomic at L2 near / L2 far / HBM near / HBM far, host-memory atomic; for `add.u32`, `add.f32`, `cas`.
+3. **Bandwidth ladder**: GPU-wide TB/s for SMEM (aggregate), L1, L2, HBM, DSMEM ring ld/st/TMA put (CS 2…16), TMA G→S, multicast ×4/×8/×16 (delivered), S→G, reduce-store, reduce-put; dotted lines = this device's DRAM peak (3.94 TB/s) and the `05` L2 bandwidth.
+4. **Atomic throughput ladder**: ops/s and payload TB/s GPU-wide (and ops/cycle/SM) for local smem atomics, DSMEM atomics / `red.async` (ring, CS 2…16), global `red`/`atom` at L2 (local / remote partition) and HBM, and the hot-spot rates (1 word, 1 line); bulk reduce-store / reduce-put from `16` for comparison.
+5. **The two user-requested histograms** (from `09` and `11`): SM-to-SM latency per cluster size with GMEM latency dotted; SM-to-SM bandwidth per cluster size with GMEM bandwidth dotted.
+6. Completion-overhead bars: mbarrier (TMA load), bulk group (TMA store), st.async, cluster.sync, flag — in cycles, next to the pure transfer time of a 16 KB payload.
 
 ## Sanity checks (agent-only)
 Expected ranges for judging plausibility during result analysis. They are never presented as pass/fail and never quoted in the notebook. If a value falls outside, investigate (placement, clocks, SASS, cache state, ncu replay) and re-run. A value that survives is a finding about this device; describe it on its own terms.

@@ -91,6 +91,7 @@ Every `experiments/<NN__name>/` contains: `Makefile` (sets `EXP`, `BINS`, includ
                    ├─► 05 bandwidth ladder ─► 16 async-proxy bandwidth
                    ├─► 06 TMA latency/issue ─► 16
                    └─► 07 synchronization primitives ─► 09, 12, 16, 17
+05 bandwidth (L2 home labelling, partition-link mode) ─► 12 global atomics near/far
 04, 05, 06, 09, 11, 12, 16 (+07) ─► 18 summary
 ```
 Groups that are independent of each other once 01–03 exist: {04, 05, 06, 07}, {09, 10, 11, 12}, {08, 13, 14, 15}, {16, 17}; 18 last. This is dependency information only: experiments are run one at a time, in numerical order (see "Experiment status").
@@ -99,6 +100,7 @@ Groups that are independent of each other once 01–03 exist: {04, 05, 06, 07}, 
 | Request (project brief) | Experiment(s) |
 |---|---|
 | Avg latency (cycles) and bandwidth (TB/s GPU-wide) for all memory-access types | 04, 05, 06, 09, 11, 12, 16 → table/figures in 18 |
+| Latency and throughput of **atomics on every path**: local SMEM, own SMEM via the DSMEM window, remote DSMEM, global at L2 near / far partition, HBM, host memory; contention and hot spots | 12 (+ bulk reductions in 16) → atomic ladders in 18 |
 | SM-to-SM latency histogram vs cluster size with GMEM latency dotted | 09 (fig. 1), repeated in 18 |
 | SM-to-SM bandwidth histogram vs cluster size with GMEM bandwidth dotted | 11 (fig. 1), repeated in 18 |
 | Point-to-point latency heatmaps across the whole hierarchy; physical-distance sensitivity | 10 (SM×SM DSMEM), 15 (SM×slice, SM×partition, inferred interconnect), 14 (SM×controller) |
@@ -124,5 +126,6 @@ Groups that are independent of each other once 01–03 exist: {04, 05, 06, 07}, 
 - Whether the per-SM SM-to-SM injection cap (≈ 21 B/cycle) is a hard shaper and how it is shared under contention (11); true multicast gain and where fan-out happens (16).
 - First-touch homing / replication in L2 and the effective capacity (08); partition hash bits and the slice hash or lookup table (13); any memory-controller distance term (14).
 - Costs of DSMEM atomics, `st.async`, `red.async`, bulk reduce-puts — unpublished (12, 16).
+- Whether global atomics execute in the line's home L2 partition (always far for half the lines, sharing the partition link like stores) or near the issuer like cached reads; atomic-unit parallelism and same-address merging in the L2 (12).
 - Which completion/signalling mechanism is cheapest for inter-CTA hand-off (07, 09) and the resulting best collective algorithms per cluster size (17).
 - Clock-domain ratio L2/SM, `%globaltimer` granularity, polling quantisation (01, 06, 07).
