@@ -2,6 +2,8 @@
 
 > **Device configuration:** runs under [`docs/context/10__device_config.md`](../context/10__device_config.md): H100 NVL (GPU 2), 132 SMs, 60 MiB L2, HBM3 3.94 TB/s, SM clock locked at 1635 MHz, power limit 400 W, ECC on, CUDA 12.9.1 `sm_90a`. Reference numbers quoted in this spec come from **other chips and configurations** (H800 PCIe, H100 PCIe, H100 SXM, H200, RTX 5090; see `10` §4). They are kept unchanged for the agent's sanity checks only, never cited in the notebook and not expectations for this device.
 
+> **⚠ Open issue OI-1 (AGENTS.md):** Nsight Compute on this setup exports no per-instance (per-slice / per-FBPA / per-SM) counter values, only `.sum/.avg/.min/.max` across units. Every step below that relies on per-instance values must be redesigned before this experiment is planned.
+
 ## Goal
 Recover, without timing, which of the 80 L2 slices (and which partition) each 128 B line maps to, using Nsight Compute's per-instance `lts__` counters; derive the partition hash and as much of the slice hash as the accessible address bits allow; produce `results/13__l2_slice_map.csv` (line offset → slice id → partition) used by `15` to choose target slices and by `08`/`14` to label latency classes.
 

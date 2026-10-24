@@ -2,6 +2,8 @@
 
 > **Device configuration:** runs under [`docs/context/10__device_config.md`](../context/10__device_config.md): H100 NVL (GPU 2), 132 SMs, 60 MiB L2, HBM3 3.94 TB/s, SM clock locked at 1635 MHz, power limit 400 W, ECC on, CUDA 12.9.1 `sm_90a`. Reference numbers quoted in this spec come from **other chips and configurations** (H800 PCIe, H100 PCIe, H100 SXM, H200, RTX 5090; see `10` §4). They are kept unchanged for the agent's sanity checks only, never cited in the notebook and not expectations for this device.
 
+> **⚠ Open issue OI-1 (AGENTS.md):** Nsight Compute on this setup exports no per-instance (per-slice / per-FBPA / per-SM) counter values, only `.sum/.avg/.min/.max` across units. Every step below that relies on per-instance values must be redesigned before this experiment is planned.
+
 ## Goal
 Decompose the DRAM-miss latency seen by each SM into (a) the L2 partition term (near/far, known ≈ +175 cycles), (b) a per-memory-controller / per-stack term (physical distance between the L2 partition and the HBM stack), and (c) DRAM-internal terms (row-buffer hit/miss, bank conflicts). Also recover as much of the channel/bank interleave as the timing allows. Output: an SM × memory-controller latency matrix and the channel-bit structure.
 

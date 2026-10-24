@@ -121,3 +121,11 @@ Settled on this H100 NVL by `01__timers_and_harness` (2026-10-23):
 - Item 8, `%globaltimer`: increments in exact 32 ns steps. Timer offsets between SMs are ≤ 1 tick.
 - ncu 2025.2.1 rejects `--print-metric-name name` together with `--page raw` ("only supported for the details page"). The raw page's column headers are already metric names, so omit that flag for raw exports.
 - With `--print-metric-instances values`, `gpc__cycles_elapsed.sum` / `sm__cycles_elapsed.sum` are exported as totals (one value), not per instance.
+
+Settled by `08__l2_partitions_and_first_touch` (2026-10-24):
+- Item 3:
+  - `device__attribute_l2s_count` = 96 (`fbp_count` 12 × `num_l2s_per_fbp` 8), but every `lts__*.avg` = `.sum / 94` (likely 2 slices disabled).
+  - **No per-slice values exist**: the report holds 0 instances for `lts__*` metrics, so `--print-metric-instances` cannot give the slice-id ↔ partition grouping.
+  - **⚠ See AGENTS.md "Open issues", OI-1** (consequences and the proposed `.max`-oracle workaround). The per-instance claims in §1 and §2 are not valid for hardware-unit counters on this setup.
+- Under application replay with a long metric list, the first counter pass ran the profiled kernels 2.6–2.8× slower (counts unaffected).
+- `lts__t_sector_hit_rate.pct` can exceed 100 %; use `lts__t_sectors_srcunit_tex_op_read_lookup_{hit,miss}`.

@@ -36,6 +36,54 @@ Update the row **before** the experiment's commit. "Key results" records what la
 
 Experiments run strictly in numerical order (01 → 18). The order respects the dependency graph below.
 
+## Open issues for the roadmap (read before planning 13, 14, 15, 17)
+
+### OI-1 — Nsight Compute gives no per-slice (per-instance) counter values; address → L2-slice mapping needs another method
+Status: **open**, found in 08 (2026-10-24). The method for 13 is not decided yet. The workaround below is a proposal; other methods may replace it, e.g. those of the MICRO 2024 GPUNetBench artifact.
+
+**Fact.**
+- On this device, Nsight Compute 2025.2.1 records no per-unit instance values for hardware-unit counters.
+- `--print-metric-instances values|details` returns only the total:
+  - `lts__*` (08: the `.ncu-rep` read with Nsight Compute's own `ncu_report` Python module holds 0 instances per metric);
+  - `sm__*` / `gpc__*` (01).
+- Only the roll-ups across units exist: `.sum`, `.avg`, `.min`, `.max`.
+- Presumably the same for `fbpa__*` and `l1tex__*` (not yet verified).
+
+**Consequences.** Every spec step that reads "the slice / controller / SM instance whose counter increments" cannot run as written:
+- 13 (the whole counter method);
+- 15 (proof that a chase hits only the intended slice);
+- 14 (per-FBPA instances);
+- 17 (per-SM injection/ejection instances);
+- `docs/context/06` §1.3 and §2.2.1, `docs/context/07` §1 and §8.
+
+**Slice count unresolved (94 vs 96).**
+- The device attributes give `l2s_count` = 96 = `fbp_count` 12 × `num_l2s_per_fbp` 8, and 60 MiB = 96 × 640 KiB.
+- But every `lts__*.avg` equals `.sum / 94`, and the bus is 6016 bit = 94 × 64 bit (12 × 512 = 6144 for the full layout).
+- Inference, not confirmed: 2 slices and 128 bit of memory interface are disabled on this H100 NVL.
+
+**Proposed workaround (untested): the busiest-slice (`.max`) counter as an oracle.**
+- Setup:
+  - one profiled pass, metrics `lts__t_sectors_srcunit_tex_op_read.max` and `.sum`;
+  - kernel replay is fine, because lookup counts do not depend on cache contents;
+  - one thread, `ld.global.cg`, addresses kept in registers.
+- Steps:
+  1. *Same slice?* Read line X *a* times and line Y *b* times (*a* ≠ *b*, both ≫ noise) in one kernel. Then `.max` = *a* + *b* if and only if they share a slice.
+  2. *Which slice, in one kernel.*
+     - Keep a reference set: one line r_j per already-known slice.
+     - Read the test line 4096× and r_j 8·j× in the same kernel. Then `.max` = 4096 + 8·j* (X is in r_j*'s slice), or exactly 4096 if X's slice has no reference yet; X then becomes a new reference.
+     - The set bootstraps itself. Its final size is the number of active slices, which settles 94 vs 96.
+  3. *Partition.*
+     - An SM's read is looked up in its own partition: at home if the line is homed there, otherwise in the slice holding the copy (08).
+     - Map from one SM of each partition: home slices, plus copy slices per partition.
+     - 08 gives each line's home (parity of physical address bits 12, 13, 15, 17, 19, 21, 22, 24) and each SM's partition.
+  4. *Noise.* An empty kernel adds 0 tex read lookups (08), but list reads and TLB warm-up reads add a few. Use the ×8 spacing or slopes over repetition counts. Also test whether all 4 sectors of a line share a slice.
+- Cost: about one profiled kernel per line (10 k lines in minutes). Then fit the slice hash over bits 7–20 and over many 2 MiB pages, as in 08 K2.
+
+**Alternatives.**
+- The same oracle used pairwise (a public RTX 4090 reverse-engineering write-up, Doubleword 2026; not checked by us).
+- Timing contention: SMs flood line A while one SM times line B; B slows down if and only if A and B share a slice. Use it to cross-check a sample.
+- Whatever the GPUNetBench artifact (MICRO 2024, H100 PCIe) does.
+
 ## Repository layout
 ```
 AGENTS.md                      ← this index (CLAUDE.md imports it and adds the Claude Code workflow)
@@ -60,7 +108,7 @@ docs/
   research_notes/              ← raw research notes the context files were distilled from (PTX ISA, CUDA API, Nsight, repos, literature)
 experiments/                   ← IMPLEMENTATIONS, one directory per spec, same NN__name
   harness/                     ← shared device/host helpers produced by experiment 01 (harness.cuh, host.hpp, Makefile.inc)
-  01__timers_and_harness/      {Makefile, src/, results/, results/sass/, 01__timers_and_harness.ipynb}
+  01__timers_and_harness/      {Makefile, src/, results/, results/sass/, 01__timers_and_harness.ipynb, 01__timers_and_harness__results_summary.txt}
   02__cluster_launch_and_occupancy/
   03__sm_gpc_topology/
   04__memory_hierarchy_latency/
@@ -79,7 +127,7 @@ experiments/                   ← IMPLEMENTATIONS, one directory per spec, same
   17__dsmem_collectives/
   18__access_type_summary/     (roll-up notebook only, no kernels)
 ```
-Every `experiments/<NN__name>/` contains: `Makefile` (sets `EXP`, `BINS`, includes `../harness/Makefile.inc`, defines `run`), `src/*.cu` + runner scripts, `results/*.csv`, `results/sass/*.sass`, and `<NN__name>.ipynb` (executed, figures embedded). SASS dumps and the executed notebook are committed. Raw data (`results/*.csv`, logs, ncu/nsys exports), binaries and `.ncu-rep`/`.nsys-rep` files are not: raw data stays in the main checkout on this machine (rules in `docs/context/09` §6).
+Every `experiments/<NN__name>/` contains: `Makefile` (sets `EXP`, `BINS`, includes `../harness/Makefile.inc`, defines `run`), `src/*.cu` + runner scripts, `results/*.csv`, `results/sass/*.sass`, and `<NN__name>.ipynb` (executed, figures embedded). SASS dumps, the executed notebook and `<NN__name>__results_summary.txt` are committed. The summary is the notebook as plain text plus the latest derived tables (summary CSVs, per-SM maps), written by `tools/export_results_summary.py` for readers that see the repo only through git. Raw data (`results/*.csv`, logs, ncu/nsys exports), binaries and `.ncu-rep`/`.nsys-rep` files are not: raw data stays in the main checkout on this machine (rules in `docs/context/09` §6).
 
 ## Dependency order (what must exist before an experiment can run)
 ```
