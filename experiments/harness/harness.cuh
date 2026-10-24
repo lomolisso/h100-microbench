@@ -10,9 +10,12 @@
  *   cluster / DSMEM      smem_u32, mapa_u32, cluster_arrive{,_release,_relaxed}, cluster_wait{,_acquire},
  *                        cluster_sync, ld_dsmem_u32, st_dsmem_u32
  *   mbarrier             mbar_init, mbar_inval, fence_mbarrier_init, mbar_arrive, mbar_arrive_expect_tx,
- *                        mbar_remote_arrive, mbar_try_wait_parity{,_acq_cluster}, mbar_wait_parity{,_acq_cluster}
- *   1-D bulk (TMA)       bulk_g2s, bulk_g2s_multicast, bulk_s2g, bulk_s2s_dsmem, bulk_prefetch_l2,
- *                        bulk_commit, bulk_wait<N>, bulk_wait_read<N>
+ *                        mbar_remote_arrive, mbar_try_wait_parity{,_acq_cluster}, mbar_wait_parity{,_acq_cluster},
+ *                        mbar_try_wait_parity_hint (suspendTimeHint), mbar_test_wait_parity (non-blocking)
+ *   1-D bulk (TMA)       bulk_g2s, bulk_g2s_hint (.L2::cache_hint), bulk_g2s_multicast, bulk_s2g, bulk_s2s_dsmem,
+ *                        bulk_prefetch_l2, bulk_commit, bulk_wait<N>, bulk_wait_read<N>, createpolicy_evict_last
+ *   tensor TMA           tma_load_1d/2d/3d (.tile, G -> own smem, mbarrier completion), prefetch_tensormap
+ *   cp.async (Ampere)    cp_async_cg16, cp_async_commit, cp_async_wait_all
  *   fences / misc        fence_proxy_async_shared_cta (+ other fences), bar_sync0, elect_one, nanosleep_ns,
  *                        relaxed/acquire/release global loads and stores at .gpu scope (cross-SM flags)
  *
@@ -161,6 +164,47 @@ __device__ __forceinline__ void bulk_prefetch_l2(const void* src, uint32_t bytes
 __device__ __forceinline__ void bulk_commit() { asm volatile("cp.async.bulk.commit_group;" ::: "memory"); }
 template <int N> __device__ __forceinline__ void bulk_wait()      { asm volatile("cp.async.bulk.wait_group %0;" :: "n"(N) : "memory"); }
 template <int N> __device__ __forceinline__ void bulk_wait_read() { asm volatile("cp.async.bulk.wait_group.read %0;" :: "n"(N) : "memory"); }
+
+// suspendTimeHint variant: the thread may sleep up to hint_ns while the phase is incomplete.
+__device__ __forceinline__ bool mbar_try_wait_parity_hint(uint32_t bar, uint32_t parity, uint32_t hint_ns) {
+    uint32_t ok;
+    asm volatile("{\n\t.reg .pred p;\n\tmbarrier.try_wait.parity.shared::cta.b64 p, [%1], %2, %3;\n\tselp.u32 %0, 1, 0, p;\n\t}"
+                 : "=r"(ok) : "r"(bar), "r"(parity), "r"(hint_ns) : "memory");
+    return ok != 0;
+}
+// Non-blocking phase test.
+__device__ __forceinline__ bool mbar_test_wait_parity(uint32_t bar, uint32_t parity) {
+    uint32_t ok;
+    asm volatile("{\n\t.reg .pred p;\n\tmbarrier.test_wait.parity.shared::cta.b64 p, [%1], %2;\n\tselp.u32 %0, 1, 0, p;\n\t}"
+                 : "=r"(ok) : "r"(bar), "r"(parity) : "memory");
+    return ok != 0;
+}
+
+// ---------------------------------------------------------------- async-proxy extras: cache hints, tensor TMA, cp.async
+// L2 policy operand for .L2::cache_hint (evict_last for the whole access).
+__device__ __forceinline__ uint64_t createpolicy_evict_last() {
+    uint64_t p; asm volatile("createpolicy.fractional.L2::evict_last.b64 %0, 1.0;" : "=l"(p)); return p; }
+__device__ __forceinline__ void bulk_g2s_hint(uint32_t dst, const void* src, uint32_t bytes, uint32_t bar, uint64_t policy) {
+    asm volatile("cp.async.bulk.shared::cluster.global.mbarrier::complete_tx::bytes.L2::cache_hint [%0], [%1], %2, [%3], %4;"
+                 :: "r"(dst), "l"(src), "r"(bytes), "r"(bar), "l"(policy) : "memory"); }
+// Tensor tile loads; tmap = address of a __grid_constant__ CUtensorMap parameter (or a 64-B aligned global copy),
+// coordinates in elements, innermost first. The barrier receives complete_tx(box bytes).
+__device__ __forceinline__ void tma_load_1d(uint32_t dst, const void* tmap, int32_t c0, uint32_t bar) {
+    asm volatile("cp.async.bulk.tensor.1d.shared::cluster.global.tile.mbarrier::complete_tx::bytes [%0], [%1, {%2}], [%3];"
+                 :: "r"(dst), "l"(tmap), "r"(c0), "r"(bar) : "memory"); }
+__device__ __forceinline__ void tma_load_2d(uint32_t dst, const void* tmap, int32_t c0, int32_t c1, uint32_t bar) {
+    asm volatile("cp.async.bulk.tensor.2d.shared::cluster.global.tile.mbarrier::complete_tx::bytes [%0], [%1, {%2, %3}], [%4];"
+                 :: "r"(dst), "l"(tmap), "r"(c0), "r"(c1), "r"(bar) : "memory"); }
+__device__ __forceinline__ void tma_load_3d(uint32_t dst, const void* tmap, int32_t c0, int32_t c1, int32_t c2, uint32_t bar) {
+    asm volatile("cp.async.bulk.tensor.3d.shared::cluster.global.tile.mbarrier::complete_tx::bytes [%0], [%1, {%2, %3, %4}], [%5];"
+                 :: "r"(dst), "l"(tmap), "r"(c0), "r"(c1), "r"(c2), "r"(bar) : "memory"); }
+__device__ __forceinline__ void prefetch_tensormap(const void* tmap) {
+    asm volatile("prefetch.tensormap [%0];" :: "l"(tmap) : "memory"); }
+// Ampere-style asynchronous 16-B copy G -> S (L1 bypass), group completion.
+__device__ __forceinline__ void cp_async_cg16(uint32_t dst, const void* src) {
+    asm volatile("cp.async.cg.shared.global [%0], [%1], 16;" :: "r"(dst), "l"(src) : "memory"); }
+__device__ __forceinline__ void cp_async_commit()   { asm volatile("cp.async.commit_group;" ::: "memory"); }
+__device__ __forceinline__ void cp_async_wait_all() { asm volatile("cp.async.wait_group 0;" ::: "memory"); }
 
 // ---------------------------------------------------------------- fences, barriers, misc
 __device__ __forceinline__ void fence_proxy_async_shared_cta() { asm volatile("fence.proxy.async.shared::cta;" ::: "memory"); }
