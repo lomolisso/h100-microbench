@@ -3,7 +3,8 @@
  * Which partition holds a line, whether reads leave copies, how a line's home depends on its address bits, and the
  * near/far signature of every SM.
  *
- * Usage: bin/l2_probe {calib|k1|k2|k3|k5|ncu_lines|ncu_fabric|clockcheck} [--quick] [--label L]. One invocation = one run_id.
+ * Usage: bin/l2_probe {calib|k1|k2|k2vmm|k3|k5|ncu_lines|ncu_fabric|ncu_fabric1|clockcheck} [--quick] [--label L].
+ * One invocation = one run_id.
  *
  * Building blocks (every mode):
  *   Lines: 128 B lines of a cudaMalloc buffer (≥ 8 MiB, 2 MiB pages, base 2 MiB-aligned: checked). Line offsets in
@@ -43,8 +44,9 @@
  *     (16 per home). Phases: CleanL2; A touches (token t0); B reads (S = 64); C reads; A reads; A rewrites the lines
  *     (token t1); B reads, then checks qword 1 == t1. seq_mode "launch": one kernel per phase; "flag": one 132-block
  *     launch, roles by %smid, phases ordered by st.release / ld.acquire.gpu flags (2 s timeout), %globaltimer at
- *     every phase start/end. 5 reps. → probe.csv kernel "K3" (every sample) and replication.csv (per line and phase:
- *     sample 0 = *_first, median of samples 1..63 = *_repeat).
+ *     every phase start/end. 5 reps. → probe.csv kernel "K3" (every sample) and replication_v2.csv (per line and phase:
+ *     sample 0 = *_first, median of samples 1..63 = *_repeat; triple_kind = cross | control). Runs before the column
+ *     existed wrote replication.csv.
  *   k5 — spec K5 (per-SM signature). 256 lines of an 8 MiB buffer: 128 homed in each partition, each touched by its
  *     home reference SM (0 or 2), so every line exists only at home. For every SM P of the 132 and 5 reps:
  *     CleanL2 → both touches → probe on P (S = 64, fixed random line order). → sm_signature_samples.csv, one row per
@@ -56,9 +58,14 @@
  *     one slice served all reads of the line.
  *   ncu_fabric — label a 16 MiB buffer (SM 0 touches, SM 2 reads every line once); CleanL2 → SM 0 touches all →
  *     k_ncu_empty, then k_ncu_fab on SM 2 (S = 1): far lines first read, near lines first read, far lines second read.
+ *   ncu_fabric1 — ncu_fabric with lists warmed, a same-grid all-exit baseline and one profiled kernel per binary run
+ *     (run_ncu_fabric1 below); supersedes ncu_fabric.
+ *   k2vmm — the page term of the partition hash on cuMemCreate allocations (run_k2vmm below).
  *   clockcheck — clock/throttle note only.
  * Every configuration samples the clocks (clock_log); claim retries per mode → launch_stats.csv.
  */
+#include <cuda.h>
+
 #include <algorithm>
 #include <cstring>
 #include <map>
@@ -170,6 +177,14 @@ NCU_PROBE(k_ncu_l1_cg, 0)
 NCU_PROBE(k_ncu_l1_ca, 1)
 NCU_PROBE(k_ncu_fab, 0)
 __global__ void k_ncu_empty() {}
+// Reads the two line lists (line addresses, TLB-warm addresses) once, so that the profiled probe's list reads hit.
+__global__ void __launch_bounds__(32) k_list_warm(const uint64_t* lines, const uint64_t* tlb, uint32_t n, uint32_t target, uint32_t* claim,
+                                                  uint64_t* sink) {
+    if (!claim_target_sm(target, claim)) return;
+    uint64_t acc = 0;
+    for (uint32_t i = threadIdx.x; i < n; i += 32) acc ^= lines[i] ^ tlb[i];
+    if (acc == 0x9e3779b97f4a7c15ull) sink[1] = acc;  // practically never; keeps the loads
+}
 
 // K3 in one launch: roles by %smid (1 CTA/SM, all 132 resident), phases ordered by a flag in global memory.
 // Phase p (0 b, 1 c, 2 a_after, 3 b_after_a_write) writes out[p*n*S ...], q1[p*n ...], tns[2p..2p+1].
@@ -337,6 +352,20 @@ class Lab {
         claimed([&] { k_calib<<<sm_count_, 32, kProbeSmem>>>(kCalibHops, P, claim_.ptr(), 0ull, d_out_, d_sink_); }, P);
         samples_.resize(kCalibHops);
         CUDA_CHECK(cudaMemcpy(samples_.data(), d_out_, kCalibHops * 4, cudaMemcpyDeviceToHost));
+    }
+    // The probe kernel with a target no SM has: all 132 blocks lose the claim and exit (same grid, no work).
+    void probe_nobody(int kernel, const DevList& l) {
+        reserve(l.n(), 1);
+        using K = void (*)(const uint64_t*, const uint64_t*, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t*, uint64_t, uint32_t*,
+                           uint64_t*, uint64_t*, uint64_t*);
+        static const K ks[] = {k_probe<0>, k_probe<1>, k_ncu_line, k_ncu_l1_cg, k_ncu_l1_ca, k_ncu_fab};
+        claim_.reset();
+        ks[kernel]<<<sm_count_, 32, kProbeSmem>>>(l.addr, l.tlb, l.n(), 1, 0, 0xffffffffu, claim_.ptr(), 0ull, d_out_, nullptr, d_tns_, d_sink_);
+        CUDA_CHECK(cudaGetLastError());
+        CUDA_CHECK(cudaDeviceSynchronize());
+    }
+    void warm_lists(const DevList& l, uint32_t P) {
+        claimed([&] { k_list_warm<<<hb::SmClaim::blocks(sm_count_), 32>>>(l.addr, l.tlb, l.n(), P, claim_.ptr(), d_sink_); }, P);
     }
     void empty() {
         k_ncu_empty<<<1, 32>>>();
@@ -633,17 +662,19 @@ static void run_k2(Ctx& c) {
 
 static void run_k3(Ctx& c) {
     const std::vector<int> gpc = load_gpc_map(c.run.dev().sm_count);
-    struct Triple { uint32_t A, B, C; };
-    const std::vector<Triple> triples = c.quick ? std::vector<Triple>{{0, 2, 6}} : std::vector<Triple>{{0, 2, 6}, {2, 8, 0}, {14, 126, 12}, {0, 8, 10}};
+    // kind "cross": B in the other partition than A (the replication test); "control": A, B, C in one partition.
+    struct Triple { uint32_t A, B, C; const char* kind; };
+    const std::vector<Triple> triples = c.quick ? std::vector<Triple>{{0, 2, 6, "cross"}}
+                                                : std::vector<Triple>{{0, 2, 6, "cross"}, {2, 8, 0, "cross"}, {14, 126, 12, "cross"}, {0, 8, 10, "control"}};
     for (const auto& t : triples)
         std::printf("K3 triple A %u (G%d, prior partition %d)  B %u (G%d, %d)  C %u (G%d, %d)\n", t.A, gpc[t.A], kPartitionOfGpc[gpc[t.A]], t.B, gpc[t.B],
                     kPartitionOfGpc[gpc[t.B]], t.C, gpc[t.C], kPartitionOfGpc[gpc[t.C]]);
     Lab lab(c.run, 8ull << 20);
     note_buffer(c.run, "k3", lab);
     hb::CsvWriter csv(hb::Run::results("08__l2__probe.csv"), probe_cols());
-    hb::CsvWriter rcsv(hb::Run::results("08__l2__replication.csv"),
+    hb::CsvWriter rcsv(hb::Run::results("08__l2__replication_v2.csv"),
                        hb::with_mandatory({"a_smid", "b_smid", "phase", "median_cycles", "c_smid", "seq_mode", "rep", "line_offset", "line_home",
-                                           "qword1_ok", "phase_t0_ns", "phase_t1_ns"}));
+                                           "qword1_ok", "phase_t0_ns", "phase_t1_ns", "triple_kind"}));
     const Panel pn = label_panel(c, lab, csv, 8ull << 20, 256, 16, 0x08000003ull);
     DevList l(lab.base(), pn.off);
     const uint32_t n = l.n();
@@ -697,9 +728,9 @@ static void run_k3(Ctx& c) {
                         const int ok = q1[(size_t)ph * n + i] == want;
                         for (int r = 0; r < 2; ++r) {
                             const uint32_t v = r == 0 ? x[0] : median_u32(std::vector<uint32_t>(x + 1, x + kS));
-                            std::snprintf(b, sizeof b, "%s,%u,%u,%s,%u,%u,%s,%d,%llu,%d,%d,%lld,%lld", pre.c_str(), t.A, t.B, rep_name[ph][r], v, t.C, seq, rep,
-                                          (unsigned long long)pn.off[i], pn.home[i], ok, (long long)(tns[2 * ph] - tns[0]),
-                                          (long long)(tns[2 * ph + 1] - tns[0]));
+                            std::snprintf(b, sizeof b, "%s,%u,%u,%s,%u,%u,%s,%d,%llu,%d,%d,%lld,%lld,%s", pre.c_str(), t.A, t.B, rep_name[ph][r], v, t.C, seq,
+                                          rep, (unsigned long long)pn.off[i], pn.home[i], ok, (long long)(tns[2 * ph] - tns[0]),
+                                          (long long)(tns[2 * ph + 1] - tns[0]), t.kind);
                             rcsv.add(b);
                         }
                     }
@@ -865,6 +896,225 @@ static void run_ncu_fabric(Ctx& c) {
     write_stats(c.run, "ncu_fabric", c.li, lab.retries(), c.bad);
 }
 
+// ncu_fabric1: the fabric test with a clean cache state for every profiled kernel. Labels as in ncu_fabric, then
+// CleanL2 → SM 0 touches all lines → SM 2 reads the far and near line lists once (k_list_warm: the probe's list reads
+// then hit) → [0] k_ncu_fab with no SM claiming (all 132 blocks exit: the same grid without work, the baseline),
+// [1] far lines first read, [2] near lines first read, [3] far lines second read (k_ncu_fab on SM 2, S = 1).
+// src/run.sh profiles exactly one of the four per binary run (--launch-skip k --launch-count 1), so the profiler's own
+// traffic around a profiled kernel never precedes another profiled kernel. Manifest mode "ncu_fabric1".
+static void run_ncu_fabric1(Ctx& c) {
+    const uint64_t kBuf = 16ull << 20;
+    Lab lab(c.run, kBuf);
+    hb::CsvWriter man = manifest_writer();
+    std::vector<uint64_t> all;
+    for (uint64_t o = 0; o < kBuf; o += kLine)
+        if (probe_able(o)) all.push_back(o);
+    std::vector<uint64_t> far, near;
+    {
+        DevList l(lab.base(), all);
+        lab.clean();
+        lab.touch(l, 0, kRef0);
+        lab.probe(0, l, 1, 0, kRef1);
+        std::vector<double> v(lab.samples().begin(), lab.samples().end());
+        const double thr = split2(v, "ncu_fabric1");
+        for (size_t i = 0; i < all.size(); ++i) (v[i] > thr ? far : near).push_back(all[i]);
+    }
+    std::printf("ncu_fabric1: %zu far, %zu near lines for SM %u\n", far.size(), near.size(), kRef1);
+    DevList la(lab.base(), all), lf(lab.base(), far), ln(lab.base(), near);
+    lab.clean();
+    lab.touch(la, 0, kRef0);
+    lab.warm_lists(lf, kRef1);
+    lab.warm_lists(ln, kRef1);
+    int order = 0;
+    char b[512];
+    auto row = [&](const char* kernel, long long probe, size_t nlines, const char* what, uint32_t med) {
+        std::snprintf(b, sizeof b, "%s,ncu_fabric1,%d,%s,%lld,%u,%zu,-1,%s,%u,0", c.run.prefix(c.li, c.note("ncu_fabric1")).c_str(), order++, kernel,
+                      probe, kRef0, nlines, what, med);
+        man.add(b);
+        man.flush();
+        ++c.li;
+    };
+    lab.probe_nobody(5, lf);
+    row("k_ncu_fab", -1, 0, "all_exit", 0);
+    auto med = [&] { return median_u32(std::vector<uint32_t>(lab.samples().begin(), lab.samples().end())); };
+    lab.probe(5, lf, 1, 0, kRef1);
+    row("k_ncu_fab", kRef1, far.size(), "far_first", med());
+    lab.probe(5, ln, 1, 0, kRef1);
+    row("k_ncu_fab", kRef1, near.size(), "near_first", med());
+    lab.probe(5, lf, 1, 0, kRef1);
+    row("k_ncu_fab", kRef1, far.size(), "far_second", med());
+    man.sync();
+    write_stats(c.run, "ncu_fabric1", c.li, lab.retries(), c.bad);
+}
+
+// ---------------------------------------------------------------- k2vmm: the page term on explicitly allocated physical memory
+#define CU_CHECK(x)                                                                                              \
+    do {                                                                                                         \
+        const CUresult r_ = (x);                                                                                 \
+        if (r_ != CUDA_SUCCESS) {                                                                                \
+            const char* e_ = nullptr;                                                                            \
+            cuGetErrorString(r_, &e_);                                                                           \
+            hb::die(std::string(#x) + ": " + (e_ ? e_ : "?"));                                                   \
+        }                                                                                                        \
+    } while (0)
+
+static CUmemAllocationProp vmm_prop() {
+    CUmemAllocationProp p{};
+    p.type = CU_MEM_ALLOCATION_TYPE_PINNED;
+    p.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
+    int dev = 0;
+    CUDA_CHECK(cudaGetDevice(&dev));
+    p.location.id = dev;
+    return p;
+}
+static CUmemGenericAllocationHandle vmm_create(size_t bytes) {
+    const CUmemAllocationProp p = vmm_prop();
+    CUmemGenericAllocationHandle h;
+    CU_CHECK(cuMemCreate(&h, bytes, &p, 0));
+    return h;
+}
+static CUdeviceptr vmm_reserve(size_t bytes, size_t align) {
+    CUdeviceptr va = 0;
+    CU_CHECK(cuMemAddressReserve(&va, bytes, align, 0, 0));
+    if (va % align) hb::die("VA reservation not aligned as requested");
+    return va;
+}
+static void vmm_map(CUdeviceptr va, size_t bytes, CUmemGenericAllocationHandle h) {
+    CU_CHECK(cuMemMap(va, bytes, 0, h, 0));
+    CUmemAccessDesc d{};
+    d.location = vmm_prop().location;
+    d.flags = CU_MEM_ACCESS_FLAGS_PROT_READWRITE;
+    CU_CHECK(cuMemSetAccess(va, bytes, &d, 1));
+}
+
+// k2vmm — is the page term of the partition hash a property of the physical page, and which page-number bits does it
+// follow inside physically separate allocations? The in-page hash (bits 12, 13, 15, 17, 19 of the offset, K2) gives
+// every line a predicted parity; the page term of a 2 MiB page is G = home XOR that parity (the same for all its lines).
+//   Allocations (cuMemCreate, recommended granularity = 2 MiB; checked):
+//     A: 64 separate 2 MiB physical allocations ("handles"), each mapped three times, every mapping a 128 MiB VA range
+//        aligned to 128 MiB (slot k at VA base + k·2 MiB):  A1 slot k ← handle k;  A2 slot k ← handle k XOR 0b01011
+//        (the same handle at a VA differing in bits 21, 22 and 24);  A3 slot k ← handle π(k) (random permutation).
+//        A hash on physical addresses gives every handle the same G in A1, A2, A3; a hash on VA bits 21/22/24 flips G
+//        between A1 and A2 for every handle.
+//     B: 4 physical allocations of 32 MiB and 2 of 64 MiB, each mapped once at a VA aligned to its size: the page-pair
+//        test (G of page j vs page j XOR 2^k) for every bit 21 + k inside the allocation.
+//     C: one cudaMalloc of 256 MiB, the same page-pair test (offsets relative to its base; base alignment recorded).
+//   Per mapping, 8 fixed in-page lines per page; per direction (P, T) ∈ {(2, 0), (0, 2)} and rep (3): CleanL2 → T touches
+//   every line → P reads every line (S = 8 dependent reads; sample 0 = first read) → 2-means on sample 0: near ⇒ home =
+//   P's partition, far ⇒ T's.
+//   → probe_k2vmm.csv: probe_cols with kernel = "K2vmm:<mapping>", line_offset relative to the mapping's VA base (every
+//     sample); k2vmm_pages.csv: one row per (mapping, page): alloc kind/size, handle (A) or allocation index, VA and
+//     allocation base, the page's G per rep and direction (majority over its 8 lines) and the number of agreeing lines.
+static void run_k2vmm(Ctx& c) {
+    constexpr uint64_t kMask = (1ull << 12) | (1ull << 13) | (1ull << 15) | (1ull << 17) | (1ull << 19);  // in-page hash (K2)
+    constexpr uint32_t kSv = 8, kLinesPerPage = 8;
+    Lab lab(c.run, 8ull << 20);  // probe machinery (its own buffer is not probed)
+    {
+        size_t g = 0;
+        const CUmemAllocationProp p = vmm_prop();
+        CU_CHECK(cuMemGetAllocationGranularity(&g, &p, CU_MEM_ALLOC_GRANULARITY_RECOMMENDED));
+        std::printf("k2vmm: recommended granularity %zu KiB\n", g >> 10);
+        if (g != kPage) hb::die("recommended granularity is not 2 MiB");
+    }
+    std::mt19937_64 rng(0x08000020ull);
+    std::vector<uint64_t> in_page;  // 8 fixed in-page offsets with both parities of the in-page hash
+    while (in_page.size() < kLinesPerPage) {
+        const uint64_t o = (rng() % (kPage / kLine)) * kLine;
+        if (probe_able(o) && std::find(in_page.begin(), in_page.end(), o) == in_page.end()) in_page.push_back(o);
+    }
+    struct Mapping { std::string name, kind; uint64_t va, alloc_base, bytes; std::vector<int> page_handle; };
+    std::vector<Mapping> maps;
+    const int nA = c.quick ? 16 : 64;
+    std::vector<CUmemGenericAllocationHandle> hA(nA);
+    for (auto& h : hA) h = vmm_create(kPage);
+    std::vector<int> perm(nA);
+    std::iota(perm.begin(), perm.end(), 0);
+    std::shuffle(perm.begin(), perm.end(), rng);
+    for (const char* nm : {"A1", "A2", "A3"}) {
+        const uint64_t bytes = (uint64_t)nA * kPage, align = 128ull << 20;
+        const CUdeviceptr va = vmm_reserve(std::max(bytes, align), align);
+        Mapping m{nm, "vmm_2MiB_handles", (uint64_t)va, (uint64_t)va, bytes, std::vector<int>(nA)};
+        for (int k = 0; k < nA; ++k) {
+            const int h = nm[1] == '1' ? k : nm[1] == '2' ? (k ^ 0b01011) % nA : perm[k];
+            m.page_handle[k] = h;
+            vmm_map(va + (uint64_t)k * kPage, kPage, hA[h]);
+        }
+        maps.push_back(m);
+    }
+    std::vector<uint64_t> bsz = c.quick ? std::vector<uint64_t>{32} : std::vector<uint64_t>{32, 32, 32, 32, 64, 64};
+    for (size_t i = 0; i < bsz.size(); ++i) {
+        const uint64_t bytes = bsz[i] << 20;
+        const CUmemGenericAllocationHandle h = vmm_create(bytes);
+        const CUdeviceptr va = vmm_reserve(bytes, bytes);
+        vmm_map(va, bytes, h);
+        maps.push_back({"B" + std::to_string(bsz[i]) + "_" + std::to_string(i), "vmm_" + std::to_string(bsz[i]) + "MiB", (uint64_t)va, (uint64_t)va,
+                        bytes, std::vector<int>(bytes / kPage, (int)i)});
+    }
+    {
+        const uint64_t bytes = (c.quick ? 64ull : 256ull) << 20;
+        void* p = nullptr;
+        CUDA_CHECK(cudaMalloc(&p, bytes));
+        if ((uint64_t)p % kPage) hb::die("cudaMalloc base not 2 MiB-aligned");
+        maps.push_back({"C", "cudaMalloc", (uint64_t)p, (uint64_t)p, bytes, std::vector<int>(bytes / kPage, -1)});
+    }
+    for (auto& m : maps) CUDA_CHECK(cudaMemset((void*)m.va, 0, m.bytes));
+    CUDA_CHECK(cudaDeviceSynchronize());
+
+    hb::CsvWriter csv(hb::Run::results("08__l2__probe_k2vmm.csv"), probe_cols());
+    hb::CsvWriter pcsv(hb::Run::results("08__l2__k2vmm_pages.csv"),
+                       hb::with_mandatory({"mapping", "alloc_kind", "alloc_bytes", "page_slot", "handle", "va_hex", "alloc_base_hex", "rep",
+                                           "probe_smid", "first_touch_smid", "page_term", "lines_agree", "lines"}));
+    const int reps = c.quick ? 1 : 3;
+    c.run.lock_clocks_note("k2vmm", "before");
+    for (const auto& m : maps) {
+        const uint64_t pages = m.bytes / kPage;
+        std::vector<uint64_t> off;
+        for (uint64_t pg = 0; pg < pages; ++pg)
+            for (uint64_t o : in_page) off.push_back(pg * kPage + o);
+        DevList l(m.va, off);
+        for (int rep = 0; rep < reps; ++rep)
+            for (auto [P, T] : {std::pair<uint32_t, uint32_t>{kRef1, kRef0}, {kRef0, kRef1}}) {
+                lab.clean();
+                lab.touch(l, 0, T);
+                lab.probe(0, l, kSv, 0, P);
+                const hb::ClockSample s = c.note("k2vmm");
+                const uint32_t* smp = lab.samples().data();
+                std::vector<double> first(off.size());
+                for (size_t i = 0; i < off.size(); ++i) first[i] = smp[i * kSv];
+                const double thr = split2(first, "k2vmm");
+                const int partP = P == kRef0 ? 0 : 1, partT = 1 - partP;
+                std::vector<int> home(off.size());
+                for (size_t i = 0; i < off.size(); ++i) home[i] = first[i] > thr ? partT : partP;
+                const std::string pre = c.run.prefix(c.li, s);
+                add_samples(csv, pre, ("K2vmm:" + m.name).c_str(), P, T, off, home, smp, kSv, "cg", "probe", rep, 0, "launch");
+                csv.flush();
+                char b[512];
+                int consistent = 0;
+                for (uint64_t pg = 0; pg < pages; ++pg) {
+                    int ones = 0;
+                    for (uint32_t j = 0; j < kLinesPerPage; ++j) {
+                        const size_t i = pg * kLinesPerPage + j;
+                        ones += home[i] ^ (__builtin_popcountll(in_page[j] & kMask) & 1);
+                    }
+                    const int G = 2 * ones > (int)kLinesPerPage ? 1 : 0, agree = G ? ones : (int)kLinesPerPage - ones;
+                    consistent += agree == (int)kLinesPerPage;
+                    std::snprintf(b, sizeof b, "%s,%s,%s,%llu,%llu,%d,0x%llx,0x%llx,%d,%u,%u,%d,%d,%u", pre.c_str(), m.name.c_str(), m.kind.c_str(),
+                                  (unsigned long long)m.bytes, (unsigned long long)pg, m.page_handle[pg], (unsigned long long)(m.va + pg * kPage),
+                                  (unsigned long long)m.alloc_base, rep, P, T, G, agree, kLinesPerPage);
+                    pcsv.add(b);
+                }
+                pcsv.flush();
+                std::printf("k2vmm %-6s rep %d P %u: thr %.0f, %d of %llu pages with all %u lines consistent\n", m.name.c_str(), rep, P, thr, consistent,
+                            (unsigned long long)pages, kLinesPerPage);
+                ++c.li;
+            }
+    }
+    csv.sync();
+    pcsv.sync();
+    c.run.lock_clocks_note("k2vmm", "after");
+    write_stats(c.run, "k2vmm", c.li, lab.retries(), c.bad);
+}
+
 int main(int argc, char** argv) {
     const std::string mode = argc > 1 ? argv[1] : "k1";
     hb::Run run(EXP, argc, argv);
@@ -877,6 +1127,8 @@ int main(int argc, char** argv) {
     else if (mode == "k5") run_k5(c);
     else if (mode == "ncu_lines") run_ncu_lines(c);
     else if (mode == "ncu_fabric") run_ncu_fabric(c);
+    else if (mode == "ncu_fabric1") run_ncu_fabric1(c);
+    else if (mode == "k2vmm") run_k2vmm(c);
     else hb::die("unknown mode " + mode);
     run.complete();
     return 0;

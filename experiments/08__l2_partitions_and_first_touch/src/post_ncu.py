@@ -9,6 +9,7 @@ sequence is identical in every pass, so the manifest of the first run started af
   --since ISO-UTC               start time of the ncu invocation
   --ncu-csv bin/ncu_<tag>.csv   ncu -i ... --csv --page raw --print-units base --print-metric-instances values
   --metrics a.sum,b.pct,...     metrics passed to ncu; only these (all rollups) plus ID and Kernel Name are kept.
+  --order k                     only manifest launch k was profiled (ncu --launch-skip k --launch-count 1): join to it.
 Per-instance values (lts__ metrics: one value per L2 slice) stay in their cells as exported (';'-separated).
 """
 import argparse
@@ -24,6 +25,7 @@ ap.add_argument("--mode", required=True)
 ap.add_argument("--since", required=True)
 ap.add_argument("--ncu-csv", required=True)
 ap.add_argument("--metrics", required=True)
+ap.add_argument("--order", type=int, default=None)
 a = ap.parse_args()
 mmode = "ncu_capacity" if a.mode == "ncu" else a.mode
 
@@ -33,6 +35,8 @@ rids = sorted(man.run_id.unique())
 if not rids:
     raise SystemExit(f"no manifest rows of {mmode} since {a.since}")
 first = man[man.run_id == rids[0]].sort_values("ncu_order", key=lambda s: s.astype(int))
+if a.order is not None:
+    first = first[first.ncu_order.astype(int) == a.order]
 print(f"ncu {a.tag}: {len(rids)} binary runs (passes) since {a.since}; manifest of {rids[0]}: {len(first)} launches")
 
 with open(a.ncu_csv, newline="") as f:
