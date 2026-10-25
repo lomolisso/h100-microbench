@@ -54,8 +54,11 @@
  *     → results/01__timers__loop_overhead.csv: variant, iters, unroll, cycles_per_iter, total_cycles, smid.
  *
  * K4  clock domains — the kernels that src/run.sh profiles with ncu (--clock-control none, then base):
- *     2 warm-ups, then 5 × k3_loop<ld_shared, 16>(16384) and 5 × k4_spin (all SMs × 128 threads, ~10 ms of
- *     %clock64 spinning). Writes only clock-log rows; src/ncu_clock_domains.py turns ncu's output into
+ *     2 warm-ups, then 5 × k3_loop<ld_shared, 16>(16384) and 5 × k4_spin (all SMs × 128 threads, spinning on
+ *     %clock64 for 10 ms × the SM clock NVML reports before the launches, i.e. 16.35 M cycles at the 1635 MHz
+ *     lock). The recorded run sized the spin from the deprecated cudaDeviceProp::clockRate (1785 MHz →
+ *     17.85 M cycles ≈ 10.9 ms at the lock); the measured clock ratios do not depend on the spin length.
+ *     Writes only clock-log rows; src/ncu_clock_domains.py turns ncu's output into
  *     results/01__timers__clock_domains.csv.
  *
  * K5  cudaEvent floor — empty kernel k5_empty<<<1, 32>>> on the default stream:
@@ -525,10 +528,13 @@ __global__ void k4_spin(uint64_t cycles, uint32_t* sink) {
 
 static void run_k4(hb::Run& run, const std::string& label) {
     const K3Bufs d = k3_alloc();
-    const uint64_t spin_cycles = 10ull * run.dev().prop.clockRate;  // clockRate is in kHz: ~10 ms at the max clock
+    // ~10 ms of spinning at the SM clock NVML reports now (the 1635 MHz lock); the requested lock if NVML reads 0.
+    const hb::ClockSample before = run.lock_clocks_note(label, "before");
+    const unsigned spin_mhz = before.sm_mhz ? before.sm_mhz : run.dev().lock_mhz;
+    if (spin_mhz == 0) hb::die("k4: no SM clock from NVML and no --lock-sm-mhz: cannot size the spin");
+    const uint64_t spin_cycles = 10000ull * spin_mhz;  // 10 ms × MHz
     auto k3 = [&] { k3_loop<V_LDS, 16><<<1, 32>>>(16384, 0u, 1u, 0ull, d.cyc, d.sink, d.smid); };
     auto spin = [&] { k4_spin<<<run.dev().sm_count, 128>>>(spin_cycles, d.sink); };
-    run.lock_clocks_note(label, "before");
     hb::warmup(k3, 1);
     hb::warmup(spin, 1);
     for (int l = 0; l < 5; ++l) hb::warmup(k3, 1), run.clock_note(label + "_k3", "launch", l);
