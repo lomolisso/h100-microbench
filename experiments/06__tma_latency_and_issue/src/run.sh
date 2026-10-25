@@ -1,23 +1,25 @@
 #!/usr/bin/env bash
 # Full run of experiment 06. Called by `make run` (or `make quick`: src/run.sh --quick) inside
 #   tools/run --profile --lock-sm-mhz 1635 -- make -C experiments/06__tma_latency_and_issue run
-# Order: clock check → K2 (completion, predicate costs) → K3 (issue / admission) → K4 (boxes) → K1/K5 (chase, the long
-# step) → the three ncu-mode invocations under ncu → clock check. The summary (src/summarize.py) needs no GPU:
+# Order: clock check → K2 (completion, predicate costs) → K3 (issue / admission) → K3sms (issue under load on 1/2/4/8
+# chosen SMs) → K4 (boxes) → K1/K5 (chase, the long step) → the three ncu-mode invocations under ncu → clock check.
+# The summary (src/summarize.py) needs no GPU:
 #   tools/run --no-gpu -- python3 src/summarize.py
-# Usage: src/run.sh [--quick] [step ...], steps: k2 k3 k4 chase ncu (default: all, in this order).
+# Usage: src/run.sh [--quick] [step ...], steps: k2 k3 k3sms k4 chase ncu (default: all, in this order).
 # Every binary invocation appends to results/ with its own run_id; profiler reports stay in bin/.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 Q=""
 if [[ "${1:-}" == "--quick" ]]; then Q="--quick"; shift; fi
-STEPS="${*:-k2 k3 k4 chase ncu}"
+STEPS="${*:-k2 k3 k3sms k4 chase ncu}"
 want() { [[ " $STEPS " == *" $1 "* ]]; }
 C=bin/tma_chase; P=bin/tma_completion; I=bin/tma_issue; B=bin/tma_boxes
 
 $C clockcheck --label start $Q
 if want k2;    then echo "== K2 completion vs payload, predicate and expect_tx costs"; $P k2 $Q; fi
 if want k3;    then echo "== K3 issue gap and admission limit";                         $I k3 $Q; fi
+if want k3sms; then echo "== K3sms issue of 1 MiB per SM on 1/2/4/8 chosen SMs";      $I k3sms $Q; fi
 if want k4;    then echo "== K4 tensor-map boxes and descriptor state";                 $B k4 $Q; fi
 if want chase; then echo "== K1/K5 TMA and generic pointer chase vs footprint";         $C chase $Q; fi
 

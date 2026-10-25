@@ -8,7 +8,7 @@
  *   SM (first SM of GPC 1 of the 03 map; 2 × 132 one-warp blocks, the others return at once), thread 0 works, 64 KiB
  *   dynamic smem destination, one mbarrier (count 1). L2 source: a 4 MiB buffer, warmed at kernel start by the same
  *   thread with 64 untimed 64-KiB bulk copies. Sample r copies `payload` bytes from src + sample_offset(r): 64-KiB slot
- *   (17 r mod 61) plus (r mod 16) · 4 KiB, so the samples start in different 4-KiB pages and L2 slices:
+ *   (17 r mod 61) plus (r mod 16) · 4 KiB, so the samples start in different 4-KiB pages with varying L2 homes:
  *     arrive.expect_tx(bar, payload) (untimed); t0 = clock64; cp.async.bulk.shared::cluster.global [dst], [src+off],
  *     payload, [bar]; t_issue = clock64; wait loop of form W until the phase of sample r completes (counts calls);
  *     t1 = clock64 (issued after the loop's final branch, i.e. after the predicate was true).
@@ -49,7 +49,7 @@ static constexpr uint32_t kHbmSlots = (uint32_t)(kHbmBytes / kSlot);
 struct CopySample { uint32_t issue, complete, polls, smid, parity, offset; };
 
 // Source offset of sample r: different 64-KiB slots and 16 different 4-KiB phases, so that the first lines of the
-// samples are spread over the L2 slices (a fixed in-slot offset made every sample hit the same slice distance).
+// samples' L2 homes vary (home partition per 4-KiB page); a fixed in-slot offset gave every sample the same home.
 __host__ __device__ __forceinline__ uint64_t sample_offset(uint32_t r, int hbm, uint32_t base_slot) {
     const uint64_t slot = hbm ? (uint64_t)base_slot + 2ull * r : (uint64_t)((r * 17u) % 61u);  // hbm: slot pairs, never reused
     return slot * kSlot + (uint64_t)(r % 16u) * 4096u;
