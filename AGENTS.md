@@ -39,50 +39,20 @@ Experiments run strictly in numerical order (01 → 18). The order respects the 
 ## Open issues for the roadmap (read before planning 13, 14, 15, 17)
 
 ### OI-1 — Nsight Compute gives no per-slice (per-instance) counter values; address → L2-slice mapping needs another method
-Status: **open**, found in 08 (2026-10-24). The method for 13 is not decided yet. The workaround below is a proposal; other methods may replace it, e.g. those of the MICRO 2024 GPUNetBench artifact.
+Status: **method decided 2026-10-25** (PR "docs: integrate MICRO'24 NoC paper + GPUNetBench, decide OI-1"); executed by `13`; `14`, `15`, `17` and the ncu paragraphs of `09`–`12`, `16` revised accordingly. Found in 08 (2026-10-24).
 
 **Fact.**
-- On this device, Nsight Compute 2025.2.1 records no per-unit instance values for hardware-unit counters.
-- `--print-metric-instances values|details` returns only the total:
-  - `lts__*` (08: the `.ncu-rep` read with Nsight Compute's own `ncu_report` Python module holds 0 instances per metric);
-  - `sm__*` / `gpc__*` (01).
-- Only the roll-ups across units exist: `.sum`, `.avg`, `.min`, `.max`.
-- Presumably the same for `fbpa__*` and `l1tex__*` (not yet verified).
+- On this device, Nsight Compute 2025.2.1 records no per-unit instance values for hardware-unit counters: `--print-metric-instances values|details` returns only the total for `lts__*` (08: the `.ncu-rep` read with `ncu_report` holds 0 instances per metric) and for `sm__*`/`gpc__*` (01); only the roll-ups `.sum`, `.avg`, `.min`, `.max` exist. 08 requested rollup metric names under application replay only; other collection modes were not tried (→ `13` Step 0).
+- Nobody else had per-slice counters on A100/H100 either: Jin et al. (MICRO 2024, GPUNetBench) used `nvprof` per-slice events on V100 and, on A100/H100, a two-kernel **timing-contention oracle**, with which they mapped 6 of 80 slices (`docs/research_notes/gpunetbench.md` §1.5).
+- Slice count: `device__attribute_l2s_count` = 96 = `fbp_count` 12 × `num_l2s_per_fbp` 8 and 60 MiB = 96 × 640 KiB, but every `lts__*.avg` = `.sum / 94` and the bus is 6016 bit = 94 × 64 bit → inference: 2 slices and their channels are disabled on this H100 NVL; settled by the size of `13`'s reference set.
 
-**Consequences.** Every spec step that reads "the slice / controller / SM instance whose counter increments" cannot run as written:
-- 13 (the whole counter method);
-- 15 (proof that a chase hits only the intended slice);
-- 14 (per-FBPA instances);
-- 17 (per-SM injection/ejection instances);
-- `docs/context/06` §1.3 and §2.2.1, `docs/context/07` §1 and §8.
+**Decision (details in `docs/context/06` §2.2 and `docs/experiments/13`).**
+1. `13` Step 0 re-checks the instance export once (kernel vs application replay, `--set full` + `ncu_report`, unsuffixed metric names, `fbpa__`/`l1tex__`/`sm__`), ≤ 1 h; the outcome goes into `docs/context/07` §8. If instances appear, the original counter method is used.
+2. Otherwise the **busiest-unit (`.max`) oracle** is the primary method: one profiled launch reads a reference line per known slice with counts 4096 + 8·j and up to three test lines with counts 2048/1024/512 through dependent `ld.global.cg` chains; `lts__t_sectors_srcunit_tex_op_read.max` decodes the slice; a test line matching no reference starts a new slice (the reference set bootstraps itself and its final size is the active slice count); `.max == .sum` is the single-unit proof. Home slices are probed from the line's home partition (08's hash), copy slices from the other partition after a warm read; FBPAs with the same oracle on `fbpa__dram_read_sectors.max`.
+3. Cross-checks: (A) the Jin et al. contention oracle on 200 random slice pairs (agreement ≥ 99 %), (B) 08's near/far timing classes, (C) `15`'s per-SM slice signature constant within a slice class.
+4. Per-SM values (11, 12, 16, 17): in-kernel accounting per CTA plus `.max/.avg/.min` rollups (hot-spot factor) and one-rank-active launches; no instances needed.
 
-**Slice count unresolved (94 vs 96).**
-- The device attributes give `l2s_count` = 96 = `fbp_count` 12 × `num_l2s_per_fbp` 8, and 60 MiB = 96 × 640 KiB.
-- But every `lts__*.avg` equals `.sum / 94`, and the bus is 6016 bit = 94 × 64 bit (12 × 512 = 6144 for the full layout).
-- Inference, not confirmed: 2 slices and 128 bit of memory interface are disabled on this H100 NVL.
-
-**Proposed workaround (untested): the busiest-slice (`.max`) counter as an oracle.**
-- Setup:
-  - one profiled pass, metrics `lts__t_sectors_srcunit_tex_op_read.max` and `.sum`;
-  - kernel replay is fine, because lookup counts do not depend on cache contents;
-  - one thread, `ld.global.cg`, addresses kept in registers.
-- Steps:
-  1. *Same slice?* Read line X *a* times and line Y *b* times (*a* ≠ *b*, both ≫ noise) in one kernel. Then `.max` = *a* + *b* if and only if they share a slice.
-  2. *Which slice, in one kernel.*
-     - Keep a reference set: one line r_j per already-known slice.
-     - Read the test line 4096× and r_j 8·j× in the same kernel. Then `.max` = 4096 + 8·j* (X is in r_j*'s slice), or exactly 4096 if X's slice has no reference yet; X then becomes a new reference.
-     - The set bootstraps itself. Its final size is the number of active slices, which settles 94 vs 96.
-  3. *Partition.*
-     - An SM's read is looked up in its own partition: at home if the line is homed there, otherwise in the slice holding the copy (08).
-     - Map from one SM of each partition: home slices, plus copy slices per partition.
-     - 08 gives each line's home (parity of physical address bits 12, 13, 15, 17, 19, 21, 22, 24) and each SM's partition.
-  4. *Noise.* An empty kernel adds 0 tex read lookups (08), but list reads and TLB warm-up reads add a few. Use the ×8 spacing or slopes over repetition counts. Also test whether all 4 sectors of a line share a slice.
-- Cost: about one profiled kernel per line (10 k lines in minutes). Then fit the slice hash over bits 7–20 and over many 2 MiB pages, as in 08 K2.
-
-**Alternatives.**
-- The same oracle used pairwise (a public RTX 4090 reverse-engineering write-up, Doubleword 2026; not checked by us).
-- Timing contention: SMs flood line A while one SM times line B; B slows down if and only if A and B share a slice. Use it to cross-check a sample.
-- Whatever the GPUNetBench artifact (MICRO 2024, H100 PCIe) does.
+**Residual unknowns:** whether any ncu collection mode exports instances on this driver/toolkit (`13` Step 0); 94 vs 96 (`13`); whether a copy slice is a fixed function of the home slice (`13` Step 5).
 
 ## Repository layout
 ```
@@ -98,14 +68,14 @@ docs/
     03__tma_and_bulk_async_copies.md     TMA unit, every sm_90 bulk form, tensor-map constraints, canonical patterns
     04__mbarrier.md                      object/phases/tx-count, all ops incl. remote forms, templates
     05__synchronization_primitives.md    decision table, memory-model rules, PTX templates, protocol recipes
-    06__l2_nuca_and_physical_topology.md L2 partitions/slices/hash, SM→GPC mapping, methodology for heatmaps and hash recovery
+    06__l2_nuca_and_physical_topology.md L2 partitions/sub-nodes/homes/copies as measured (04/05/08), SM→GPC/CPC facts, Jin et al. NoC findings, the OI-1 slice-identification method, methodology for heatmaps, speedup, per-slice bandwidth and hash recovery
     07__profiling_tools.md               Nsight Compute flags and verified gh100 metric names (DSMEM = `dshared`, TMA = `tma`), SASS map, nsys, clocks
-    08__prior_work_reference_numbers.md  every H100-silicon number from the 5 reference papers + blog, with tolerances
+    08__prior_work_reference_numbers.md  every H100-silicon number from the 6 reference papers (P1–P6) + blog, with tolerances
     09__measurement_conventions.md       timers, clock locking, placement control, cache control, statistics, CSV schema, notebook layout
     10__device_config.md                 THE device (H100 NVL) and the single fixed run configuration (locked clock, limits); prior-work chips side by side
   experiments/                 ← one self-contained experiment SPEC per file (kernel design, sweeps, CSV columns, figures, agent-only sanity checks, ncu metrics)
     01__timers_and_harness.md … 18__access_type_summary.md
-  research_notes/              ← raw research notes the context files were distilled from (PTX ISA, CUDA API, Nsight, repos, literature)
+  research_notes/              ← raw research notes the context files were distilled from (PTX ISA, CUDA API, Nsight, repos, literature); `gpunetbench.md` = full reading of Jin et al. (MICRO 2024) and its artifact, mapped onto our experiments
 experiments/                   ← IMPLEMENTATIONS, one directory per spec, same NN__name
   harness/                     ← shared device/host helpers produced by experiment 01 (harness.cuh, host.hpp, Makefile.inc)
   01__timers_and_harness/      {Makefile, src/, results/, results/sass/, 01__timers_and_harness.ipynb, 01__timers_and_harness__results_summary.txt}
@@ -156,6 +126,7 @@ Groups that are independent of each other once 01–03 exist: {04, 05, 06, 07}, 
 | L2 NUCA / slices / banks / hashing functions; other SRAM arrays | 08 (partitions, first-touch), 13 (slice map + hash), 05/12 (SMEM bank behaviour via conflict counters) |
 | GMEM latency vs distance to the memory controller | 14 |
 | How things are interconnected (hierarchical crossbars?) | 10 §analysis, 15 §analysis (hierarchical model), 11 (fabric arbitration), 16 (multicast fan-out) |
+| The NoC measurements of Jin et al. (MICRO 2024) on this device: per-slice bandwidth uniformity and saturation, NoC input speedup per TPC/CPC/GPC, L2 and HBM latency–throughput curves, DSMEM-vs-L2 interference, CPC level | 15 (K4–K7), 14 (K5), 11 (K5), 10 (CPC test) |
 | Synchronization primitives: what/when/cost | docs/context 05 (templates) + experiment 07 (costs) |
 | Hardware collectives only; tailored algorithms per topology | docs/context 02 §3 + experiment 17 |
 | Check our numbers against published ones | agents only, during result analysis: docs/context 08 + each spec's "Sanity checks"; never in the notebooks |
@@ -170,9 +141,9 @@ Groups that are independent of each other once 01–03 exist: {04, 05, 06, 07}, 
 7. Environment, GPU selection and safety rules: `docs/environment/README.md` (run everything through `tools/run`; GPU 2 default, GPU 3 explicit only). The device here is an H100 NVL (detect and record), CUDA ≥ 12.4 (PTX ≥ 8.4; `.shared::cta` bulk destinations need PTX 8.6), Nsight Compute ≥ 2024, root for `nvidia-smi -lgc` (if unavailable, record clocks continuously and filter).
 
 ## Known unknowns the experiments must settle (summarised from the context files)
-- Exact GPC composition and smid→GPC map of this card (03); whether TPC/CPC structure is visible in DSMEM latency (10).
+- GPC composition and smid→GPC map: settled by 03 except the GPC of SMs 124–131, which rests on clock domains (15 re-tests them via their L2-slice signature); whether TPC/CPC structure is visible in DSMEM latency (10; Jin et al. saw a ≈ 17-cycle CPC step on H100 PCIe with CPC = TPC index mod 3).
 - Whether the per-SM SM-to-SM injection cap (≈ 21 B/cycle) is a hard shaper and how it is shared under contention (11); true multicast gain and where fan-out happens (16).
-- First-touch homing / replication in L2 and the effective capacity (08); partition hash bits and the slice hash or lookup table (13); any memory-controller distance term (14).
+- Settled by 08: home is a function of the address (XOR of PA bits 12,13,15,17,19,21,22,24), copies on read and write, 2×2 sub-node grid (+29 / +162), one-SM effective capacity ≈ 26 MiB near. Open: the slice hash or lookup table, the copy-slice rule, the active slice count 94 vs 96 and the slice→FBPA grouping (13); any memory-controller distance term and the per-GPC miss penalty (14); per-slice bandwidth uniformity and the input speedup per hierarchy level (15).
 - Costs of DSMEM atomics, `st.async`, `red.async`, bulk reduce-puts — unpublished (12, 16).
 - Whether global atomics execute in the line's home L2 partition (always far for half the lines, sharing the partition link like stores) or near the issuer like cached reads; atomic-unit parallelism and same-address merging in the L2 (12).
 - Which completion/signalling mechanism is cheapest for inter-CTA hand-off (07, 09) and the resulting best collective algorithms per cluster size (17).
