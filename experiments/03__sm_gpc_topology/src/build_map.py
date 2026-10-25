@@ -1,4 +1,4 @@
-"""Build results/03__sm_gpc_topology__map.csv from the latest complete cosched and clockdom runs.
+"""Build a new run of results/03__sm_gpc_topology__map.csv from the latest complete cosched and clockdom runs.
 
 1. Co-scheduling domains: every pair of SMs that hosted CTAs of the same cluster in one launch is joined
    (union-find over all CS and all launches). A component larger than 18 SMs would mean the probe merged records
@@ -10,15 +10,26 @@
    its clock. If any check fails, gpc falls back to the co-scheduling domain and a warning is printed.
 GPC and domain ids are numbered by their smallest %smid.
 
-Columns: mandatory (from the cosched run; launch_idx = -1), then smid, gpc, gpc_size, hosts_cs16 (the GPC hosted a
-cluster of 16), tpc_mate_hyp (= smid ^ 1), partition, subnode (empty: filled by later experiments), notes,
-cosched_domain, cosched_domain_size, max_cs_observed, clock_domain, clockdom_run_id. Appended, never rewritten.
+Output: one new map run (132 rows) with its own run_id (UTC ISO timestamp, same format as the harness), registered
+in results/03__sm_gpc_topology__runs.csv as `started` before and `complete` after the rows are appended.
+Columns: mandatory (values of the cosched run, new run_id, launch_idx = -1), then smid, gpc, gpc_size, hosts_cs16
+(the GPC hosted a cluster of 16), tpc_mate_hyp (= smid ^ 1), partition, subnode, notes, cosched_domain,
+cosched_domain_size, max_cs_observed, clock_domain, clockdom_run_id.
+- partition / subnode are not measured here: they are copied per smid from the latest earlier map run that has them
+  filled for every SM (written by the L2 experiment 08), together with its "partition/subnode from …" note; empty
+  if no such run exists.
+- notes: "card serial <S>" (the board's `Serial Number` line of results/…card.txt, not the chassis serial);
+  "only in clusters of <= N; GPC from clock domain" only for SMs outside every co-scheduling domain that hosts
+  clusters of >= 4 (SMs 124–131 on this card), i.e. the SMs whose GPC comes from the clock domain alone.
+Appended, never rewritten. Run from experiments/03__sm_gpc_topology (src/run.sh does).
 """
 import csv
 import fcntl
 import io
 import os
 import re
+import sys
+from datetime import datetime, timezone
 
 import numpy as np
 import pandas as pd
@@ -32,7 +43,7 @@ def latest_complete(sub):
     runs = pd.read_csv(R + "runs.csv")
     started = runs[runs.status == "started"]
     done = set(runs[runs.status == "complete"].run_id)
-    ids = [r for r, c in zip(started.run_id, started.cmdline) if r in done and f" {sub}" in f" {c} "]
+    ids = [r for r, c in zip(started.run_id, started.cmdline) if r in done and re.search(rf"gpc_probe {sub}(\s|$)", c)]
     if not ids:
         raise SystemExit(f"no complete {sub} run in {R}runs.csv")
     return ids[-1]
@@ -136,25 +147,58 @@ def main():
 
     serial = ""
     if os.path.exists(R + "card.txt"):
-        m = re.findall(r"Serial Number\s*:\s*(\S+)", open(R + "card.txt").read())
+        m = re.findall(r"^\s*Serial Number\s*:\s*(\S+)", open(R + "card.txt").read(), flags=re.M)  # not "Chassis Serial Number"
         serial = m[-1] if m else ""
+
+    # partition / subnode: copied from the latest earlier map run that has them for every SM
+    header = MANDATORY + ["smid", "gpc", "gpc_size", "hosts_cs16", "tpc_mate_hyp", "partition", "subnode", "notes",
+                          "cosched_domain", "cosched_domain_size", "max_cs_observed", "clock_domain", "clockdom_run_id"]
+    part, sub, part_note, rid_p = {}, {}, "", ""
+    if os.path.exists(R + "map.csv"):
+        old = pd.read_csv(R + "map.csv", dtype=str, keep_default_na=False)
+        full = [r for r, g in old.groupby("run_id") if (g.partition != "").all() and (g.subnode != "").all()
+                and set(g.smid.astype(int)) == set(range(n))]
+        if full:
+            rid_p = max(full)
+            g = old[old.run_id == rid_p].set_index(old[old.run_id == rid_p].smid.astype(int))
+            part, sub = g.partition.to_dict(), g.subnode.to_dict()
+            frag = sorted({f for t in g.notes for f in re.findall(r"partition/subnode from [^;]*", t)})
+            part_note = "; ".join(frag)
+            moved = [s for s in range(n) if int(g.gpc[s]) != gpc[s]]
+            print(f"partition/subnode copied from map run {rid_p} ({part_note or 'no source note'})"
+                  + (f"; WARNING: gpc differs from that run for smid {moved}" if moved else ""))
+        else:
+            print("no earlier map run with partition/subnode for every SM: left empty")
+
     first = e.iloc[0]
+    rid = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
     rows = []
     for s in range(n):
         notes = [f"card serial {serial}"] if serial else []
-        if dom_size[s] < gpc_size[s]:
+        if dom[s] not in big:  # GPC known only from the clock domain (SMs never in clusters of >= 4)
             notes.append(f"only in clusters of <= {max_cs[s]}; GPC from clock domain")
-        rows.append([first[k] for k in MANDATORY[:-1]] + [-1, s, gpc[s], gpc_size[s], int(gpc[s] in hosts16), s ^ 1, "", "",
-                                                         "; ".join(notes), dom[s], dom_size[s], max_cs[s], clk[s], rid_c])
-    header = MANDATORY + ["smid", "gpc", "gpc_size", "hosts_cs16", "tpc_mate_hyp", "partition", "subnode", "notes",
-                          "cosched_domain", "cosched_domain_size", "max_cs_observed", "clock_domain", "clockdom_run_id"]
+        if part_note:
+            notes.append(part_note)
+        rows.append([first[k] for k in MANDATORY[:-2]] + [rid, -1, s, gpc[s], gpc_size[s], int(gpc[s] in hosts16), s ^ 1,
+                                                         part.get(s, ""), sub.get(s, ""), "; ".join(notes), dom[s],
+                                                         dom_size[s], max_cs[s], clk[s], rid_c])
+
+    # register the map run (started → rows → complete) so an interrupted write shows up as partial
+    reg_hdr = ["run_id", "started_iso", "finished_iso", "status", "gpu_uuid", "cmdline"]
+    runs = pd.read_csv(R + "runs.csv", dtype=str, keep_default_na=False)
+    uuid = runs[runs.run_id == rid_e].gpu_uuid.iloc[0]
+    cmd = (f"src/build_map.py (from cosched run {rid_e} and clockdom run {rid_c}"
+           + (f"; partition/subnode copied from map run {rid_p}: {part_note})" if rid_p else ")"))
+    append_rows(R + "runs.csv", reg_hdr, [[rid, rid, "", "started", uuid, cmd]])
     append_rows(R + "map.csv", header, rows)
+    append_rows(R + "runs.csv", reg_hdr, [[rid, "", datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
+                                           "complete", uuid, cmd]])
     for g in np.unique(gpc):
         sm = np.where(gpc == g)[0]
         print(f"G{g}: {len(sm):2d} SMs, hosts CS16 {int(g in hosts16)}, cluster-capable {int((max_cs[sm] >= 4).sum()):2d}: "
               + " ".join(map(str, sm)))
     print(f"GPCs: {len(np.unique(gpc))}, sizes {sorted(np.bincount(gpc).tolist(), reverse=True)}, "
-          f"able to host CS 16: {len(hosts16)}; map appended to {R}map.csv")
+          f"able to host CS 16: {len(hosts16)}; map run {rid} appended to {R}map.csv")
 
 
 if __name__ == "__main__":
