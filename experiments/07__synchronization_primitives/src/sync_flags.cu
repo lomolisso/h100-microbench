@@ -2,23 +2,32 @@
  * sync_flags.cu — experiment 07, K4: round trip and one-way latency of every way of signalling "ready" between the
  * two CTAs of a cluster (flag ping-pong matrix), with a global-memory flag and cluster.sync() as references.
  *
- * Usage: bin/sync_flags {k4|ncu|clockcheck} [--quick] [--label L]. One invocation = one run_id.
+ * Usage: bin/sync_flags {k4|k4cs16|ncu|clockcheck} [--quick] [--label L]. One invocation = one run_id.
  *
  * Placement: one cluster of CS CTAs per launch (ClusterOnce: explicit cluster attribute, Default policy, 200 KB
- * dynamic smem → 1 CTA/SM), one warp per CTA. The active pair is rank 0 and rank p (kernel argument); placement sweep
- * (CS, p) ∈ {(2, 1), (4, 1), (4, 2)}: a lone CS-2 cluster lands on SMs 124/125 (the special TPC that never joins larger
- * clusters); in CS 4 (regular GPCs) ranks 0/1 are TPC mates and ranks 0/2 sit on different TPCs of one GPC. Ranks not in
- * {0, p} take part only in the setup/teardown cluster.sync() and, for cluster_sync, in every barrier of the loop (the
- * same number of barriers as the pair). A launch whose CS ranks do not sit on distinct SMs is discarded and repeated.
+ * dynamic smem → 1 CTA/SM), one warp per CTA. The active pair is the initiator rank q and the peer rank p (kernel
+ * arguments; q = 0 in mode k4). Mode k4: (CS, q, p) ∈ {(2, 0, 1), (4, 0, 1), (4, 0, 2)}: a lone CS-2 cluster lands on
+ * SMs 124/125 (the special TPC that never joins larger clusters); a lone CS-4 cluster lands in GPC 0 (the 12-SM GPC):
+ * ranks 0/1 on SMs 0/1 (TPC mates), ranks 0/2 on SMs 0/16 (different TPCs of GPC 0). Ranks not in {q, p} take part only
+ * in the setup/teardown cluster.sync() and, for cluster_sync, in every barrier of the loop (the same number of barriers
+ * as the pair). A launch whose CS ranks do not sit on distinct SMs is discarded and repeated.
+ * Mode k4cs16: one CS-16 cluster per launch. A placement kernel (k4_place, same launch configuration, 2 warm-up + 5
+ * launches) records rank → smid; the map seen in most of the 5 launches is the reference placement (it must occur in at
+ * least 3, else the run stops; the count is printed). The host maps smid → GPC with the 03 map (latest run_id of
+ * ../03__sm_gpc_topology/results/03__sm_gpc_topology__map.csv) and TPC t = smid / 2 (SMs 2t, 2t+1); the TPC index
+ * of an SM = the rank of its TPC among all TPCs of its GPC in the map, sorted ascending. All 16 ranks must lie in one GPC. Initiator q = the rank on the smaller smid of TPC index 0; peers
+ * p = its TPC mate (TPC index 0, other SM) and the ranks on the smaller smid of TPC indices 1, 3, 5, 7 (a peer whose TPC
+ * index has no rank in the cluster is skipped with a message). Every recorded launch checks that all 16 ranks sit on the
+ * reference SMs; a launch that differs is discarded, counted and repeated (printed per pair and in total).
  * Lane 0 does all signalling (lanes 1–31 wait at __syncwarp); only cluster_sync runs on the whole warp (aligned barrier).
  * Setup: each CTA zeroes its flag/data words, inits its mbarrier (count 1; st.async/red.async: pre-armed with
  * arrive.expect_tx(4)), fence.mbarrier_init, cluster.sync(). Teardown: cluster.sync() before any CTA exits.
  * Push model: the signaller writes into the PEER's smem; the waiter polls its OWN word through the .shared::cluster
  * address of its own rank (mapa(addr, own rank)) with the method's load form.
  * Iteration i (epoch e = i + 1), reps = 1024 (64 with --quick):
- *   rank 0: t0 = %clock64; g_send = %globaltimer; signal(rank p, e); wait(own, e); t1 = %clock64
- *   rank p: wait(own, e); g_recv = %globaltimer; [re-arm]; signal(rank 0, e)
- *   round trip = t1 − t0 (rank 0's SM clock; includes one %globaltimer read), one-way = g_recv − g_send (32-ns ticks).
+ *   rank q: t0 = %clock64; g_send = %globaltimer; signal(rank p, e); wait(own, e); t1 = %clock64
+ *   rank p: wait(own, e); g_recv = %globaltimer; [re-arm]; signal(rank q, e)
+ *   round trip = t1 − t0 (rank q's SM clock; includes one %globaltimer read), one-way = g_recv − g_send (32-ns ticks).
  * Methods (one named kernel each; primitive name in the CSV):
  *   k4_st_ld_volatile     flag_st_ld_volatile             st.shared::cluster e → peer flag; spin ld.volatile.shared::cluster own flag
  *   k4_pull_ld_volatile   flag_pull_ld_volatile ("pull")  st.volatile.shared::cta e → OWN flag; spin ld.volatile.shared::cluster PEER flag
@@ -28,23 +37,26 @@
  *   k4_atom_exch          flag_atom_exch                  atom.acq_rel.cluster.shared::cluster.exch e (old value unused); spin ld.acquire.cluster
  *   k4_st_async           st_async_mbarrier               st.async e → peer data, complete_tx(4) on the peer's mbarrier;
  *                                                         loop try_wait.parity.acquire.cluster (parity i & 1), then ld.shared data;
- *                                                         t1 waits for the data load (rank 0); re-arm arrive.expect_tx(4)
- *                                                         after the wait (rank p: before signalling back; rank 0: after t1)
+ *                                                         t1 waits for the data load (rank q); re-arm arrive.expect_tx(4)
+ *                                                         after the wait (rank p: before signalling back; rank q: after t1)
  *   k4_red_async          red_async_mbarrier              red.async add 1 → peer data counter (== e), same barrier protocol
  *   k4_arrive_release     remote_mbarrier_arrive_release  mbarrier.arrive.release.cluster.shared::cluster on the peer's
  *                                                         barrier (count 1, no tx); try_wait.parity.acquire.cluster loop
  *   k4_arrive_relaxed     remote_mbarrier_arrive_relaxed  the same with .relaxed.cluster
- *   k4_gmem_flag          gmem_flag_release_acquire       st.release.gpu / ld.acquire.gpu spin on global flags; rank 0's flag at
+ *   k4_gmem_flag          gmem_flag_release_acquire       st.release.gpu / ld.acquire.gpu spin on global flags; rank q's flag at
  *                                                         base + off, rank p's at base + off + 128, variants off0 / off4096 (base 8-KiB aligned: the
  *                                                         two 4-KiB pages have opposite L2 home partitions); flags reset per launch
- *   k4_cluster_sync       cluster_sync (32 threads)       rank 0: t0; g_send; cluster.sync(); cluster.sync(); t1;
+ *   k4_cluster_sync       cluster_sync (32 threads)       rank q: t0; g_send; cluster.sync(); cluster.sync(); t1;
  *                                                         rank p: cluster.sync(); g_recv; cluster.sync()
  * Every poll loop is capped at 2^26 polls: a timeout sets an error count and ends the launch; data mismatches
  * (st.async/red.async word ≠ e after the wait) are counted too; the host dies on either.
  * Per (placement, method): 2 unrecorded warm-up launches, then 5 recorded launches (2 with --quick).
- *   → results/07__sync__propagation.csv: one row per iteration: primitive, cs (2 or 4), smid_src = rank 0, smid_dst =
- *     rank p, one_way_ns, round_trip_cycles, block_threads (1; 32 for cluster_sync), variant = method variant (push /
- *     pull / off0 / off4096) + "_r0<p>" (e.g. push_r01, off4096_r02), rep = i. Per-iteration values are buffered in __shared__ and copied to global memory after the teardown.
+ *   → results/07__sync__propagation.csv: one row per iteration: primitive, cs (2, 4 or 16), smid_src = rank q,
+ *     smid_dst = rank p, one_way_ns, round_trip_cycles, block_threads (1; 32 for cluster_sync), variant = method
+ *     variant (push / pull / off0 / off4096) + "_r0<p>" in mode k4 (e.g. push_r01, off4096_r02) or
+ *     "_cs16_tpc<a>-<b>" in mode k4cs16 (a, b = TPC indices of rank q's and rank p's SM in their GPC; the TPC mate
+ *     pair is tpc0-0; e.g. push_cs16_tpc0-3), rep = i. Per-iteration values are buffered in __shared__ and copied to
+ *     global memory after the teardown.
  *   → results/07__sync__primitives__k4.csv: the k0 timer-floor rows of this run (k_timer_floor).
  * ncu mode: every (placement, method) once (1024 reps); manifest bin/ncu_manifest_k4.csv (one row per profiled launch, in order).
  */
@@ -128,11 +140,11 @@ __device__ __forceinline__ void k4_rearm(const K4Addr& a) {
     if constexpr (kHasData<M>) mbar_arrive_expect_tx(a.own_bar, 4u);
 }
 
-// Active pair: rank 0 and rank p (role 0 / 1); other ranks (role 2) only join the cluster barriers.
-// g[role * reps + i]: rank 0 g_send, rank p g_recv; rt[i] (rank 0); info[rank * 4 + {0: smid, 1: timeouts, 2: mismatches}].
+// Active pair: initiator rank q and peer rank p (role 0 / 1); other ranks (role 2) only join the cluster barriers.
+// g[role * reps + i]: rank q g_send, rank p g_recv; rt[i] (rank q); info[rank * 4 + {0: smid, 1: timeouts, 2: mismatches}].
 template <int M>
-__device__ __forceinline__ void k4_body(uint32_t reps, uint32_t zero, uint32_t p, uint32_t* gflag, uint64_t* g, uint32_t* rt,
-                                        uint32_t* info) {
+__device__ __forceinline__ void k4_body(uint32_t reps, uint32_t zero, uint32_t q, uint32_t p, uint32_t* gflag, uint64_t* g,
+                                        uint32_t* rt, uint32_t* info) {
     extern __shared__ __align__(16) uint8_t dyn[];  // 200 KB, only reserved (1 CTA/SM)
     __shared__ __align__(8) uint64_t s_bar;
     __shared__ uint32_t s_flag, s_data;
@@ -141,7 +153,7 @@ __device__ __forceinline__ void k4_body(uint32_t reps, uint32_t zero, uint32_t p
     const uint32_t lane = threadIdx.x & 31;
     uint32_t rank;
     asm volatile("mov.u32 %0, %%cluster_ctarank;" : "=r"(rank));
-    const uint32_t role = rank == 0 ? 0u : rank == p ? 1u : 2u, peer = rank == 0 ? p : 0u, smid = read_smid();
+    const uint32_t role = rank == q ? 0u : rank == p ? 1u : 2u, peer = rank == q ? p : q, smid = read_smid();
     K4Addr a;
     a.own_flag_cta = smem_u32(&s_flag);
     a.own_flag = mapa_u32(a.own_flag_cta, rank);
@@ -226,9 +238,9 @@ __device__ __forceinline__ void k4_body(uint32_t reps, uint32_t zero, uint32_t p
 }
 
 #define K4_KERNEL(name, M)                                                                                         \
-    __global__ void __launch_bounds__(32) name(uint32_t reps, uint32_t zero, uint32_t p, uint32_t* gflag,           \
+    __global__ void __launch_bounds__(32) name(uint32_t reps, uint32_t zero, uint32_t q, uint32_t p, uint32_t* gflag, \
                                                uint64_t* g, uint32_t* rt, uint32_t* info) {                        \
-        k4_body<M>(reps, zero, p, gflag, g, rt, info);                                                             \
+        k4_body<M>(reps, zero, q, p, gflag, g, rt, info);                                                          \
     }
 K4_KERNEL(k4_st_ld_volatile, M_ST_LD_VOL)
 K4_KERNEL(k4_pull_ld_volatile, M_PULL_VOL)
@@ -243,7 +255,16 @@ K4_KERNEL(k4_arrive_relaxed, M_ARRIVE_RLX)
 K4_KERNEL(k4_gmem_flag, M_GMEM)
 K4_KERNEL(k4_cluster_sync, M_CSYNC)
 
-using K4Fn = void (*)(uint32_t, uint32_t, uint32_t, uint32_t*, uint64_t*, uint32_t*, uint32_t*);
+// Placement probe of mode k4cs16 (same launch configuration as the K4 kernels): info[rank] = smid.
+__global__ void __launch_bounds__(32) k4_place(uint32_t* info) {
+    extern __shared__ __align__(16) uint8_t dyn[];  // 200 KB, only reserved (1 CTA/SM)
+    uint32_t rank;
+    asm volatile("mov.u32 %0, %%cluster_ctarank;" : "=r"(rank));
+    if (threadIdx.x == 0) { dyn[0] = 0; info[rank] = read_smid(); }
+    cluster_sync();  // all CTAs co-resident until every rank has recorded
+}
+
+using K4Fn = void (*)(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t*, uint64_t*, uint32_t*, uint32_t*);
 struct K4Case { K4Fn k; const char* kname; const char* primitive; const char* variant; uint32_t goff; int bt; };
 static const K4Case kCases[] = {
     {k4_st_ld_volatile, "k4_st_ld_volatile", "flag_st_ld_volatile", "push", 0, 1},
@@ -261,27 +282,29 @@ static const K4Case kCases[] = {
     {k4_cluster_sync, "k4_cluster_sync", "cluster_sync", "push", 0, 32},
 };
 
-// Placement sweep: (cluster size, peer rank of rank 0).
-struct K4Pair { int cs; uint32_t p; };
-static const K4Pair kPairs[] = {{2, 1}, {4, 1}, {4, 2}};
-static std::string pair_variant(const K4Case& c, const K4Pair& q) { return std::string(c.variant) + "_r0" + std::to_string(q.p); }
+// Placement: cluster size, initiator rank q, peer rank p, variant suffix; ref = the reference rank → smid map that every
+// launch must reproduce (empty: only distinct SMs are required).
+struct K4Pair { int cs; uint32_t q, p; std::string tag; std::vector<uint32_t> ref; };
+static const K4Pair kPairs[] = {{2, 0, 1, "_r01", {}}, {4, 0, 1, "_r01", {}}, {4, 0, 2, "_r02", {}}};
+static std::string pair_variant(const K4Case& c, const K4Pair& q) { return std::string(c.variant) + q.tag; }
 
 struct K4Bufs {
     DevBuf<uint32_t> gflag{(2u << 20) / 4};  // 2 MiB: base 8-KiB aligned (checked)
     DevBuf<uint64_t> g;
-    DevBuf<uint32_t> rt, info{16};  // 4 words per rank, cs ≤ 4
+    DevBuf<uint32_t> rt, info{64};  // 4 words per rank, cs ≤ 16
     explicit K4Bufs(uint32_t reps) : g(2 * (size_t)reps), rt(reps) {
         if ((uintptr_t)gflag.d % 8192 != 0) hb::die("global flag buffer is not 8-KiB aligned");
     }
 };
 
-// One launch; returns false if the cs ranks did not land on distinct SMs. Dies on timeouts / data mismatches.
+// One launch; returns false if the cs ranks did not land on distinct SMs, or (q.ref set) not on the reference SMs.
+// Dies on timeouts / data mismatches.
 static bool k4_launch(const K4Case& c, const K4Pair& q, uint32_t reps, K4Bufs& b, std::vector<uint32_t>& info) {
     if (reps > kReps) hb::die("reps > kReps");
     b.gflag.zero();
     b.info.zero();
     ClusterOnce co(q.cs, 32);
-    CUDA_CHECK(co.L.launch(c.k, reps, 0u, q.p, b.gflag.d + c.goff / 4, b.g.d, b.rt.d, b.info.d));
+    CUDA_CHECK(co.L.launch(c.k, reps, 0u, q.q, q.p, b.gflag.d + c.goff / 4, b.g.d, b.rt.d, b.info.d));
     CUDA_CHECK(cudaGetLastError());
     CUDA_CHECK(cudaDeviceSynchronize());
     info = b.info.get();
@@ -293,6 +316,7 @@ static bool k4_launch(const K4Case& c, const K4Pair& q, uint32_t reps, K4Bufs& b
                     std::to_string(r) + " timeouts " + std::to_string(info[r * 4 + 1]) + " data mismatches " +
                     std::to_string(info[r * 4 + 2]));
     }
+    if (!q.ref.empty() && sm != q.ref) return false;
     return hb::all_distinct(sm);
 }
 
@@ -305,6 +329,7 @@ static double median(std::vector<long long> v) {
 static void k4_point(Out07& o, const K4Case& c, const K4Pair& q, uint32_t reps, int launches) {
     K4Bufs b(reps);
     std::vector<uint32_t> info;
+    const int disc0 = o.discarded;
     for (int w = 0; w < kWarmups; ++w) k4_launch(c, q, reps, b, info);
     const std::string variant = pair_variant(c, q);
     const std::string label = std::string("k4_") + c.primitive + "_" + variant + "_cs" + std::to_string(q.cs);
@@ -312,7 +337,7 @@ static void k4_point(Out07& o, const K4Case& c, const K4Pair& q, uint32_t reps, 
     for (int l = 0, tries = 0; l < launches;) {
         if (!k4_launch(c, q, reps, b, info)) {
             ++o.discarded;
-            if (++tries > 20) hb::die(label + ": ranks never on distinct SMs");
+            if (++tries > 20) hb::die(label + (q.ref.empty() ? ": ranks never on distinct SMs" : ": placement never matched the reference"));
             continue;
         }
         const hb::ClockSample s = o.run.clock_note(label, "launch", o.li);
@@ -321,7 +346,7 @@ static void k4_point(Out07& o, const K4Case& c, const K4Pair& q, uint32_t reps, 
         const std::string pre = o.run.prefix(o.li, s);
         for (uint32_t i = 0; i < reps; ++i) {
             const long long ow = (long long)g[reps + i] - (long long)g[i];
-            o.prop_row(s, c.primitive, q.cs, info[0], info[q.p * 4], ow, rt[i], c.bt, variant, i, pre);
+            o.prop_row(s, c.primitive, q.cs, info[q.q * 4], info[q.p * 4], ow, rt[i], c.bt, variant, i, pre);
             all_rt.push_back(rt[i]);
             all_ow.push_back(ow);
         }
@@ -330,8 +355,9 @@ static void k4_point(Out07& o, const K4Case& c, const K4Pair& q, uint32_t reps, 
         ++l;
     }
     o.sync();
-    std::printf("k4 %-32s %-12s cs %d smid %3u -> %3u: round trip %7.0f cycles, one-way %5.0f ns (medians)\n",
-                c.primitive, variant.c_str(), q.cs, info[0], info[q.p * 4], median(all_rt), median(all_ow));
+    std::printf("k4 %-32s %-18s cs %2d smid %3u -> %3u: round trip %7.0f cycles, one-way %5.0f ns (medians)%s\n",
+                c.primitive, variant.c_str(), q.cs, info[q.q * 4], info[q.p * 4], median(all_rt), median(all_ow),
+                o.discarded > disc0 ? (", " + std::to_string(o.discarded - disc0) + " launches discarded").c_str() : "");
 }
 
 static void run_k4(hb::Run& run, bool quick) {
@@ -342,6 +368,71 @@ static void run_k4(hb::Run& run, bool quick) {
     for (const K4Pair& q : kPairs)
         for (const K4Case& c : kCases) k4_point(o, c, q, reps, launches);
     std::printf("k4: %d launches discarded (ranks not on distinct SMs)\n", o.discarded);
+}
+
+// Mode k4cs16: reference placement of a lone CS-16 cluster, then the 5 pairs of TPC indices (see the docstring).
+static void run_k4cs16(hb::Run& run, bool quick) {
+    constexpr int kCs = 16, kPlaceLaunches = 5;
+    Out07 o(run, "k4");
+    const uint32_t reps = quick ? kQuickReps : kReps;
+    const int launches = quick ? kQuickLaunches : kLaunches;
+    timer_floor(o, reps, launches);
+    // Reference placement: the rank -> smid map seen in most of kPlaceLaunches launches (after warm-ups); it must occur
+    // in a majority of them, the others are counted.
+    DevBuf<uint32_t> pinfo(kCs);
+    std::vector<std::vector<uint32_t>> seen;
+    ClusterOnce co(kCs, 32);
+    for (int l = 0; l < kWarmups + kPlaceLaunches; ++l) {
+        pinfo.zero();
+        CUDA_CHECK(co.L.launch(k4_place, pinfo.d));
+        CUDA_CHECK(cudaGetLastError());
+        CUDA_CHECK(cudaDeviceSynchronize());
+        if (l >= kWarmups) seen.push_back(pinfo.get());
+    }
+    std::vector<uint32_t> ref;
+    int nref = 0;
+    for (const auto& m : seen) {
+        const int n = (int)std::count(seen.begin(), seen.end(), m);
+        if (n > nref) { nref = n; ref = m; }
+    }
+    if (2 * nref <= kPlaceLaunches || !hb::all_distinct(ref))
+        hb::die("k4cs16: no stable rank -> SM placement of a lone CS-16 cluster (" + std::to_string(nref) + " of " +
+                std::to_string(kPlaceLaunches) + " placement launches agree)");
+    std::printf("k4cs16: reference placement seen in %d of %d placement launches\n", nref, kPlaceLaunches);
+    const std::vector<int> gpc = load_gpc_map(run.dev().sm_count);
+    const int G = gpc[ref[0]];
+    for (uint32_t s : ref)
+        if (gpc[s] != G) hb::die("k4cs16: the CS-16 cluster spans more than one GPC");
+    std::vector<int> tpcs;  // TPC ids of GPC G (whole GPC, from the map), ascending
+    for (int s = 0; s < (int)gpc.size(); ++s)
+        if (gpc[s] == G && (tpcs.empty() || tpcs.back() != s / 2)) tpcs.push_back(s / 2);
+    auto tpc_index = [&](uint32_t s) { return (int)(std::find(tpcs.begin(), tpcs.end(), (int)(s / 2)) - tpcs.begin()); };
+    // rank on the smaller (or, other = true, the larger) smid of TPC index k; -1 if the cluster has no SM there
+    auto rank_at = [&](int k, bool other) {
+        int best = -1;
+        for (int r = 0; r < kCs; ++r)
+            if (tpc_index(ref[r]) == k && (best < 0 || ((ref[r] < ref[best]) != other))) best = r;
+        return best;
+    };
+    std::printf("k4cs16: GPC %d (%zu TPCs); rank -> smid (TPC index):", G, tpcs.size());
+    for (int r = 0; r < kCs; ++r) std::printf(" %d->%u(%d)", r, ref[r], tpc_index(ref[r]));
+    std::printf("\n");
+    const int qi = rank_at(0, false);
+    if (qi < 0) hb::die("k4cs16: no rank on TPC index 0");
+    std::vector<K4Pair> pairs;
+    const int mate = rank_at(0, true);
+    if (mate >= 0 && mate != qi) pairs.push_back({kCs, (uint32_t)qi, (uint32_t)mate, "_cs16_tpc0-0", ref});
+    else std::printf("k4cs16: the TPC mate of rank %d is not in the cluster, pair tpc0-0 skipped\n", qi);
+    for (int k : {1, 3, 5, 7}) {
+        const int pk = rank_at(k, false);
+        if (pk < 0) { std::printf("k4cs16: no rank on TPC index %d, pair tpc0-%d skipped\n", k, k); continue; }
+        pairs.push_back({kCs, (uint32_t)qi, (uint32_t)pk, "_cs16_tpc0-" + std::to_string(k), ref});
+    }
+    for (const K4Pair& q : pairs) {
+        std::printf("k4cs16: pair %s = ranks %u -> %u, SMs %u -> %u\n", q.tag.c_str() + 1, q.q, q.p, ref[q.q], ref[q.p]);
+        for (const K4Case& c : kCases) k4_point(o, c, q, reps, launches);
+    }
+    std::printf("k4cs16: %d launches discarded (placement different from the reference or ranks on shared SMs)\n", o.discarded);
 }
 
 // One launch per (placement, method) (1024 reps); manifest rows in launch order for post_ncu.py.
@@ -366,6 +457,7 @@ int main(int argc, char** argv) {
     hb::Run run(EXP, argc, argv);
     if (mode == "clockcheck") run.lock_clocks_note(hb::arg_str(argc, argv, "--label", "check"), "check");
     else if (mode == "k4") run_k4(run, hb::has_flag(argc, argv, "--quick"));
+    else if (mode == "k4cs16") run_k4cs16(run, hb::has_flag(argc, argv, "--quick"));
     else if (mode == "ncu") run_ncu(run);
     else hb::die("unknown mode " + mode);
     run.complete();
