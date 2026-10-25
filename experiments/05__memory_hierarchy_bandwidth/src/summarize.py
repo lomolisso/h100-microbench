@@ -15,9 +15,12 @@ from experiment 01; bpc_chip = tbps / SM clock; bpc_per_sm = bpc_chip / 132):
                             although it also leaves a copy in the writer's partition); both partitions' runs pooled.
   l2_link_both_ways         the same from both partitions at once.
   l2_ld_one_gpc             link mode: ld local from the SMs of one GPC (G1, 16 SMs, and G4, 18 SMs, pooled).
-  l2_ld_first_pass_{near,far}  link mode, first-pass test, pass 1, the 66 SMs of one partition (512 threads per SM),
-                            lines held only at home: GPU-wide rate over the %globaltimer span of the reading blocks.
-  dram_{read,write,mix,mix11}  K4 full grid, .cg.
+  l2_ld_first_pass_{near,far}  firstpass mode, pass 1, the 66 SMs of one partition (1 × 1024 threads per SM, gentle home
+                            touch), lines held only at home: rate = 1 / slope of the %globaltimer span over the payload
+                            for the footprints whose residency sample found ≤ 0.1 % of lines missing from L2 (first read
+                            > 480 cycles); B/cycle per SM at the locked 1635 MHz; p5/p95 by bootstrap; n = launches.
+  dram_{read,write,mix,mix11}  K4 full grid, .cg; written lines still dirty in L2 at kernel end (ncu dram__bytes_write)
+                            are taken out of the payload (common05.hbm_write_factor).
   dram_read_per_sm          K4 active-SM sweep, read: median GB/s per active SM for n ≤ 16 (the linear region).
 median/p5/p95 over the recorded (valid) launches; n = number of launches.
 Run_ids read: the latest complete run of each mode (firstpass for the first-pass levels).
@@ -34,6 +37,7 @@ from common05 import (MANDATORY, append_rows, event_floor_ms, first_pass_slope, 
 OUT = "results/05__bandwidth__summary.csv"
 COLS = ["level", "median", "p5", "p95", "unit", "n", "bpc_per_sm", "tbps", "config", "source", "source_run_ids"]
 SMS = 132
+LOCK_MHZ = 1635  # fixed run configuration (docs/context/10)
 
 
 def q(v):
@@ -101,9 +105,9 @@ def main():
     for v, name in [("local", "near"), ("remote", "far")]:
         d = fp[(fp.variant == v) & fp.footprint_bytes.isin(ok)]
         rate, icpt, p5, p95 = first_pass_slope(d)
-        mhz = d.sm_mhz_blocks.median()
         tb = rate * 1e9 / 1e12
-        rows.append([f"l2_ld_first_pass_{name}", tb, p5 * 1e-3, p95 * 1e-3, "TB/s", len(d), rate * 1e9 / (mhz * 1e6) / 66, tb,
+        # B/cycle at the locked clock: the block timers' cycles/ns over µs-long passes read high (%globaltimer quantised)
+        rows.append([f"l2_ld_first_pass_{name}", tb, p5 * 1e-3, p95 * 1e-3, "TB/s", len(d), rate * 1e9 / (LOCK_MHZ * 1e6) / 66, tb,
                      f"first read of lines held only at home; 66 SMs x 1 x 1024 threads; slope of span over "
                      f"{d.bytes.min() / 2**20:.0f}-{d.bytes.max() / 2**20:.0f} MiB per direction (start-up {icpt / 1e3:.2f} us)",
                      "firstpass mode, pass 1", rf])

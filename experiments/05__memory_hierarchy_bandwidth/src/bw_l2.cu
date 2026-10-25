@@ -74,7 +74,8 @@
  *   launches (k3_stream) and one k3_ncu launch; first-pass configurations profile pass 1 and pass 2.
  *   Writes bin/ncu_manifest_l2.csv.
  * storecopy, firstpass, ncufp modes: see run_storecopy / run_firstpass / run_ncufp below (stores leave a copy;
- *   first-pass rates from the slope over payload with 2 × 1024 threads per SM, L2 residency checked by timing a sample;
+ *   first-pass rates from the slope over payload (1 × 1024 threads per SM, gentle home touch), L2 residency checked by
+ *   timing a sample;
  *   the same under ncu with a same-grid all-exit baseline in the same session).
  * Bandwidth: GPU-wide tbps = bytes / cudaEvent time as measured; the analysis subtracts the event-pair floor (01).
  * --quick: 32 MiB buffer, F ∈ {4, 16, 28} MiB, short lists of other configurations, 3 recorded launches.
@@ -698,9 +699,17 @@ static double steady(Ctx& x, Writers& w, Cfg c, int recorded) {
     return tb[tb.size() / 2];
 }
 
+// Home touch: every line of the footprint read once by a block of its home partition (k3_stream local, 1 rep).
+// heavy: 2 × 1024 threads per SM, ILP 4 (k3 mode); gentle: 1 × 1024 threads per SM, ILP 1 (firstpass mode). With the
+// heavy touch more of the touched lines are already evicted when the touch ends (firstpass residency check).
+static Cfg home_touch(const Ctx& x, uint64_t footprint, bool gentle) {
+    return gentle ? Cfg{V_LOCAL, OP_LD, 1, footprint, x.sm_count, 1024, true, 3, 1, 0}
+                  : Cfg{V_LOCAL, OP_LD, 4, footprint, 2 * x.sm_count, 1024, false, 3, 1, 0};
+}
+
 // First-pass test: flush, home touch, pass 1 and pass 2, both recorded.
-static void first_pass(Ctx& x, Writers& w, Cfg c, int recorded) {
-    Cfg touch_cfg{V_LOCAL, OP_LD, 4, c.footprint, 2 * x.sm_count, 1024, false, 3, 1, 0};
+static void first_pass(Ctx& x, Writers& w, Cfg c, int recorded, bool gentle_touch = false) {
+    Cfg touch_cfg = home_touch(x, c.footprint, gentle_touch);
     Prepared pt = prepare(x, touch_cfg);
     c.reps = 1;
     Prepared p = prepare(x, c);
@@ -942,16 +951,17 @@ static void run_storecopy(Ctx& x, bool quick) {
     x.run.lock_clocks_note("storecopy", "after");
 }
 
-// firstpass mode: the first-pass test (CleanL2 → home touch → pass 1 → pass 2, as in first_pass) in one direction
+// firstpass mode: the first-pass test (CleanL2 → gentle home touch → pass 1 → pass 2, as in first_pass) in one direction
 // (readers = the GPCs of one partition, gpc mask 0x8E or 0x71), local (lines homed in the readers' partition, near) and
-// remote (homed in the other partition, far), for footprints F ∈ {8, 12, 16, 20, 24, 32, 48} MiB (F/2 = 4 … 24 MiB per
-// direction) and three block configurations: 2 × 1024 threads per SM (128 KiB of loads in flight per SM; the
+// remote (homed in the other partition, far), for footprints F ∈ {8, 12, 16, 20, 24, 32, 40, 48} MiB (F/2 = 4 … 24 MiB
+// per direction) and three block configurations: 2 × 1024 threads per SM (128 KiB of loads in flight per SM; the
 // steady-state configuration), 1 × 1024 (64 KiB) and 1 × 512 (32 KiB, the link-mode configuration). The time of one
 // pass is start-up + payload / rate, so the rate is taken from the slope of span over payload where the residency check
-// finds every sampled line in L2 (analysis).
-// Residency: per F and rep, CleanL2 → home touch → one warp on a home-partition SM (first SM of G4 for lines homed in
-// partition 0, of G1 for partition 1) reads 1024 evenly spaced lines of each partition's set once (no copies are made by
-// home-partition reads): near (≈ 270 cycles) = still in L2, ≥ 480 = HBM.
+// finds every sampled line in L2 (analysis). The home touch is the gentle one (1 × 1024 threads per SM, ILP 1): with
+// the k3 mode's 2 × 1024 / ILP 4 touch, 2 % of the lines were already gone at 16 MiB per partition, 17 % at 24 MiB.
+// Residency: per F and rep, CleanL2 → the same home touch → one warp on a home-partition SM (first SM of G4 for lines
+// homed in partition 0, of G1 for partition 1) reads 1024 evenly spaced lines of each partition's set once (no copies
+// are made by home-partition reads): near (≈ 270 cycles) = still in L2, > 480 = HBM.
 //   → 05__bandwidth__l2_link.csv / _l2_link_blocks.csv (as link mode) and 05__bandwidth__firstpass_residency.csv.
 static void run_firstpass(Ctx& x, bool quick) {
     const Labels lb = label_homes(x, false);
@@ -959,13 +969,13 @@ static void run_firstpass(Ctx& x, bool quick) {
     Writers w(true);
     hb::CsvWriter rcsv(hb::Run::results("05__bandwidth__firstpass_residency.csv"), probe_cols());
     const int RF = quick ? 3 : 20, RR = quick ? 1 : 3, B2 = 2 * x.sm_count;
-    const std::vector<uint64_t> F = quick ? std::vector<uint64_t>{8, 16} : std::vector<uint64_t>{8, 12, 16, 20, 24, 32, 48};
+    const std::vector<uint64_t> F = quick ? std::vector<uint64_t>{8, 16} : std::vector<uint64_t>{8, 12, 16, 20, 24, 32, 40, 48};
     const uint32_t probe_sm[2] = {(uint32_t)first_sm_of_gpc(x.gpc, 4), (uint32_t)first_sm_of_gpc(x.gpc, 1)};
     x.run.lock_clocks_note("firstpass", "before");
     std::vector<uint16_t> cyc;
     std::vector<uint32_t> val;
     for (uint64_t f : F) {
-        Cfg touch_cfg{V_LOCAL, OP_LD, 4, f * kMiB, B2, 1024, false, 3, 1, 0};
+        Cfg touch_cfg = home_touch(x, f * kMiB, true);
         Prepared pt = prepare(x, touch_cfg);
         Sample s[2];
         for (int h = 0; h < 2; ++h) s[h] = make_sample(x.home_lines[h], lines_in_prefix(x.home_lines[h], (uint32_t)(f * kMiB / kLine)), 1024);
@@ -989,7 +999,7 @@ static void run_firstpass(Ctx& x, bool quick) {
                     const bool one = k > 0;
                     Cfg c{v, OP_LD, 4, f * kMiB, one ? x.sm_count : B2, k == 2 ? 512 : 1024, one};
                     c.gpc_mask = m;
-                    first_pass(x, w, c, RF);
+                    first_pass(x, w, c, RF, true);
                 }
     }
     x.run.lock_clocks_note("firstpass", "after");

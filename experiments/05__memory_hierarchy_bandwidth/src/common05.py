@@ -136,3 +136,19 @@ def hbm_write_factor(ndr, op, payload, cache="cg"):
     r = ndr[(ndr.op == op) & (ndr.cache_op == cache)].iloc[0]
     dirty = max(0.0, payload * WRITE_SHARE[op] - float(r["dram__bytes_write.sum"]))
     return (payload - dirty) / payload
+
+
+def latest_full(df, res=RES):
+    """Rows of the latest run_id of a results frame whose run is not a --quick smoke run (registry cmdline)."""
+    r = runs(res)
+    quick = set(r[r.cmdline.str.contains("--quick")].run_id)
+    ids = sorted(set(df.run_id) - quick)
+    return df[df.run_id == ids[-1]].reset_index(drop=True)
+
+
+def complete_runs(tool, mode, quick=False, res=RES):
+    """run_ids of all complete invocations `bin/<tool> <mode>` (quick or not), oldest first."""
+    r = runs(res)
+    toks = r.cmdline.str.split()
+    sel = r[toks.map(lambda t: len(t) > 1 and t[0].endswith("/" + tool) and t[1] == mode and (("--quick" in t) == quick)) & r.complete]
+    return list(sel.sort_values("started_iso").run_id)
