@@ -12,7 +12,7 @@
                      permutation test of the sub-node split, K3 phase medians (cross-partition triples of the latest K3
                      run, replication_v2.csv), partition hash bits (K2: in-page bits; page term of the 2 GiB buffer), the
                      page term on cuMemCreate allocations (k2vmm), K4 plain-chase cycles per hop, the footprint where the
-                     steady-state chase leaves the near plateau, the K4 access classes (Gaussian mixture) and their shares,
+                     steady-state chase leaves the near plateau, the K4 latency classes (Gaussian mixture; classes by latency, not by home) and their shares,
                      and the first-read counters per line (ncu_fabric1, all-exit baseline subtracted).
 All three append with their own run_id (time of this summary); source runs in source_run_ids.
 """
@@ -165,10 +165,10 @@ def main():
     hist["cyc"] = hist.cycles - tp
     h2 = hist[hist["pass"] == 2].groupby("cyc")["count"].sum()
     gm = gmm1d(h2.index.values, h2.values, k=4, n_starts=50, seed=0)
-    cls_names = ["near_hit", "far_hit", "hbm_near_class", "hbm_far_class"]
+    cls_names = ["near_hit", "far_hit", "hbm_lower_latency_class", "hbm_upper_latency_class"]  # latency classes, not homes
     for k, nm in enumerate(cls_names):
         out.append([f"k4_class_{nm}_mean", f"{gm['mean'][k]:.1f}", "cycles", "", "", int(h2.sum()), f"{tp:.1f}",
-                    f"K4 pass 3, 4-component Gaussian mixture (EM, best of 50 starts): SD {gm['sd'][k]:.1f}, weight {100 * gm['weight'][k]:.1f}%"
+                    f"K4 pass 3, latency class of a 4-component Gaussian mixture (EM, best of 50 starts): SD {gm['sd'][k]:.1f}, weight {100 * gm['weight'][k]:.1f}%"
                     + (f", upper boundary (equal posterior) {gm['boundaries'][k]:.1f}" if k < 3 else ""), rid["k4"]])
     hist["cls"] = np.searchsorted(gm["boundaries"], hist.cyc.values)
     for lo, hi in [(38, 52), (64, 80)]:
@@ -178,7 +178,7 @@ def main():
             if k == 0:
                 continue
             out.append([f"k4_share_{nm}_{lo}_{hi}MiB", f"{sh.get(k, 0.0):.2f}", "%", "", "", int(x["count"].sum()), f"{tp:.1f}",
-                        f"K4 pass 3, footprints {lo}-{hi} MiB, both touch patterns: share of accesses in the class", rid["k4"]])
+                        f"K4 pass 3, footprints {lo}-{hi} MiB, both touch patterns: share of accesses in the latency class (not a home split; homes are 50/50)", rid["k4"]])
 
     # sub-node split vs permutation null (1000 permutations, seed 0, lines permuted within each SM row)
     dd = k5.assign(lat_first=k5.first_cycles - tp, lat_repeat=k5.repeat_median - tp)
