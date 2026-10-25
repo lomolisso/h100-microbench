@@ -6,9 +6,12 @@
  *   line `n` times through a dependent chain of ld.global.cg.u64: qword 0 of the line holds the line's own address, so
  *   every load uses the value of the previous one (no merging, no hoisting). n = 4096: ≈ 4096 L2 read lookups of one
  *   line (one slice), plus a few for the first miss and the list-free setup.
- * Host: cudaMalloc 2 MiB, qword 0 = its own address, one launch. No CSV: the deliverable is the ncu output (results/).
+ * Host: cudaMalloc 2 MiB, qword 0 = its own address, one launch inside cudaProfilerStart/Stop (the range for ncu's
+ *   range replay modes). No CSV: the deliverable is the ncu output (results/).
  */
 #include <cstdio>
+
+#include <cuda_profiler_api.h>
 
 #include "harness.cuh"
 #include "host.hpp"
@@ -30,9 +33,11 @@ int main(int argc, char** argv) {
     CUDA_CHECK(cudaMalloc(&smid, 4));
     const uint64_t self = (uint64_t)buf;
     CUDA_CHECK(cudaMemcpy(buf, &self, 8, cudaMemcpyHostToDevice));
+    cudaProfilerStart();  // the profiler range for --replay-mode range / app-range (no effect otherwise)
     k13_step0<<<1, 1>>>(buf, 4096, sink, smid);
     CUDA_CHECK(cudaGetLastError());
     CUDA_CHECK(cudaDeviceSynchronize());
+    cudaProfilerStop();
     uint32_t s = 0;
     CUDA_CHECK(cudaMemcpy(&s, smid, 4, cudaMemcpyDeviceToHost));
     std::printf("k13_step0: 4096 dependent reads of line 0x%llx on SM %u\n", (unsigned long long)self, s);

@@ -52,7 +52,7 @@ Status: **method decided 2026-10-25** (PR "docs: integrate MICRO'24 NoC paper + 
 3. Cross-checks: (A) the Jin et al. contention oracle on 200 random slice pairs (agreement ≥ 99 %), (B) 08's near/far timing classes, (C) `15`'s per-SM slice signature constant within a slice class.
 4. Per-SM values (11, 12, 16, 17): in-kernel accounting per CTA plus `.max/.avg/.min` rollups (hot-spot factor) and one-rank-active launches; no instances needed.
 
-**Residual unknowns:** ~~whether any ncu collection mode exports instances~~ → settled by `13` Step 0 (2026-10-25): **none does** (kernel/application replay, `--set full` + `ncu_report`, unsuffixed names; `lts__`, `fbpa__`, `l1tex__`, `sm__` all 0 instances), `.max == .sum` for a single line confirms the oracle, `fbpa__` rollups exist (`docs/context/07` §8) → 13 uses `method = max_oracle`; 94 vs 96 (`13`; `.avg = .sum/94` again); whether a copy slice is a fixed function of the home slice (`13` Step 5).
+**Residual unknowns:** ~~whether any ncu collection mode exports instances~~ → settled by `13` Step 0 (2026-10-25): **none does** (Nsight Compute 2025.2.1: kernel/application/range/app-range replay, `--print-metric-instances details|values`, `--set full` + `ncu_report`, unsuffixed names; no per-unit instances for `lts__`, `fbpa__`, `l1tex__`, `sm__` counters — only the two per-launch `sm__maximum_warps_*` values carry one instance), `.max == .sum` for a single line confirms the oracle, `fbpa__` rollups exist with `.avg = .sum/24` (24 FBPA units, not 12) (`docs/context/07` §8) → 13 uses `method = max_oracle`; 94 vs 96 (`13`; `.avg = .sum/94` again); whether a copy slice is a fixed function of the home slice (`13` Step 5).
 
 ## Repository layout
 ```
