@@ -7,7 +7,7 @@ Specifications (`docs/`) and implementations (`experiments/`) of 18 H100 microbe
 
 ## Starting a new conversation
 One conversation = one experiment, run strictly one after another. A new conversation needs no further prompt:
-1. Open the **Experiment status** table in `AGENTS.md`. Work on the first row whose status is not `done`:
+1. Open the **Experiment status** table in `AGENTS.md`. Work on the first row whose status is neither `done` nor `moved`:
    - `in review`: the previous experiment is committed but not yet approved. Ask the user for their review, apply the requested changes, and push once they approve (see "What an experiment is", step 6).
    - `todo` or `in progress`: this is the experiment to implement. Its dependencies (AGENTS.md "Dependency order") must be `done`; if they are not, tell the user.
 2. Work in **plan mode** first (enter it if the conversation did not start in it). Read the files listed below, then present a plan: kernels, sweeps, runs, expected duration on the GPU, and the notebook outline. After the user approves, carry it out in auto mode.
@@ -23,7 +23,7 @@ One conversation = one experiment, run strictly one after another. A new convers
 
 ## Subagents and tools
 - Spawning subagents to parallelise work *within* the experiment is encouraged: independent kernel variants, CSV analysis, figure code, notebook sections, documentation lookups. Every subagent uses **Claude Opus 5.5 (`model: opus`) with effort `high`**.
-- Only one GPU job at a time. Subagents never start GPU runs in parallel. `tools/run` refuses while the GPU lock is held: wait and retry, and never switch to GPU 3 on your own.
+- Only one GPU job at a time. Subagents never start GPU runs in parallel. `tools/run` refuses while the GPU lock is held: wait and retry, and never switch to GPU 2 on your own.
 - Web search is allowed when needed (PTX ISA, CUDA, Nsight documentation). The curated `docs/context/` files take precedence over the web and over `docs/research_notes/`.
 
 ## Conventions enforced here
@@ -54,6 +54,6 @@ One conversation = one experiment, run strictly one after another. A new convers
 - The research notes in `docs/research_notes/` (raw PTX ISA, CUDA API, Nsight, repo-mining and literature notes) are supporting material. The curated `docs/context/` files take precedence when they disagree.
 - Environment: follow `docs/environment/README.md` (the only place environment instructions live):
   - Edit, run agents and use git directly in this NFS repo.
-  - Run every build, benchmark and notebook through `tools/run` (`--no-gpu` for builds and notebooks; GPU 2 by default, `--gpu 3` only when the user says so, never other GPUs).
+  - Run every build, benchmark and notebook through `tools/run` (`--no-gpu` for builds and notebooks; GPU 3 by default (since 2026-10-25), `--gpu 2` only when the user says so, never other GPUs).
   - Write results straight into `experiments/<NN>/results/`.
   - Never `docker run` by hand, never `docker … prune`, never touch other users' processes.

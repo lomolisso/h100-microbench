@@ -7,7 +7,7 @@ H100MB_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
 # `nvidia-smi -q`: index == /dev/nvidiaN minor == CDI device N). Any other index is always refused.
 declare -A GPU_UUID=([2]=GPU-428e544c-5649-1dde-a6bf-95de7485dd6a [3]=GPU-1241dcbc-33ea-80bf-5f87-37f7868c3126)
 declare -A GPU_PCI=([2]=00000000:C3:00.0 [3]=00000000:DA:00.0)
-DEFAULT_GPU=2
+DEFAULT_GPU=3
 
 # Busy thresholds for the preflight (an idle H100 NVL here shows 14 MiB: Xorg holds 4 MiB on every GPU).
 BUSY_MEM_MIB=1024

@@ -1,6 +1,6 @@
 # 09 — DSMEM remote-access latency vs cluster size (generic proxy)
 
-> **Device configuration:** runs under [`docs/context/10__device_config.md`](../context/10__device_config.md): H100 NVL (GPU 2), 132 SMs, 60 MiB L2, HBM3 3.94 TB/s, SM clock locked at 1635 MHz, power limit 400 W, ECC on, CUDA 12.9.1 `sm_90a`. Reference numbers quoted in this spec come from **other chips and configurations** (H800 PCIe, H100 PCIe, H100 SXM, H200, RTX 5090; see `10` §4). They are kept unchanged for the agent's sanity checks only, never cited in the notebook and not expectations for this device.
+> **Device configuration:** runs under [`docs/context/10__device_config.md`](../context/10__device_config.md): H100 NVL (GPU 3), 132 SMs, 60 MiB L2, HBM3 3.94 TB/s, SM clock locked at 1635 MHz, power limit 400 W, ECC on, CUDA 12.9.1 `sm_90a`. Reference numbers quoted in this spec come from **other chips and configurations** (H800 PCIe, H100 PCIe, H100 SXM, H200, RTX 5090; see `10` §4). They are kept unchanged for the agent's sanity checks only, never cited in the notebook and not expectations for this device.
 
 ## Goal
 Average dependent-load latency, in SM cycles, of a remote shared-memory access as the cluster grows from 2 to 16 CTAs, for every (source rank, destination rank) pair, under the three scheduling policies; plus the local-via-DSMEM-interface baseline and the remote **store→visibility** latency. Figure: histogram of SM-to-SM latencies per cluster size with the GMEM (DRAM) latency from `04` as a dotted line (user's requested figure).

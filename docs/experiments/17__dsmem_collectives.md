@@ -1,6 +1,8 @@
 # 17 — Intra-cluster collectives on the hardware primitives: AllReduce, AllGather, ReduceScatter, AlltoAll (and Broadcast)
 
-> **Device configuration:** runs under [`docs/context/10__device_config.md`](../context/10__device_config.md): H100 NVL (GPU 2), 132 SMs, 60 MiB L2, HBM3 3.94 TB/s, SM clock locked at 1635 MHz, power limit 400 W, ECC on, CUDA 12.9.1 `sm_90a`. Reference numbers quoted in this spec come from **other chips and configurations** (H800 PCIe, H100 PCIe, H100 SXM, H200, RTX 5090; see `10` §4). They are kept unchanged for the agent's sanity checks only, never cited in the notebook and not expectations for this device.
+> **Moved (2026-10-25).** This study is owned by `~/work/fa2026/iacoma/h100-dsmem-collectives/collectives/` (see its `ROADMAP.md`, tasks C1–C7). This spec is not run in h100-microbench; it is kept as reference input: collectives task C7 folds in its Broadcast algorithms, the many-cluster (max active clusters) runs, the in-kernel `bytes_injected` accounting and the `.max/.avg` hot-spot factor.
+
+> **Device configuration:** runs under [`docs/context/10__device_config.md`](../context/10__device_config.md): H100 NVL (GPU 3), 132 SMs, 60 MiB L2, HBM3 3.94 TB/s, SM clock locked at 1635 MHz, power limit 400 W, ECC on, CUDA 12.9.1 `sm_90a`. Reference numbers quoted in this spec come from **other chips and configurations** (H800 PCIe, H100 PCIe, H100 SXM, H200, RTX 5090; see `10` §4). They are kept unchanged for the agent's sanity checks only, never cited in the notebook and not expectations for this device.
 
 > **Method note (OI-1, decided):** Nsight Compute on this setup exports no per-instance counter values. Per-rank injection/ejection is accounted **in the kernel** (`bytes_injected` per CTA, exact for every algorithm) and hot spots are read from the `.max/.avg/.min` rollups of the DSMEM link metrics; no per-SM ncu instances are needed.
 

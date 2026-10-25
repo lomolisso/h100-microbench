@@ -9,7 +9,7 @@ Binding for experiments 01–17 (18 only aggregates). An experiment may deviate 
 | Item | Value | Source |
 |---|---|---|
 | GPU | **NVIDIA H100 NVL** (GH100, PCIe form factor), VBIOS 96.00.AF.00.02 | `nvidia-smi` |
-| Card used | GPU 2: `GPU-428e544c-5649-1dde-a6bf-95de7485dd6a`, PCI `00000000:C3:00.0` (GPU 3 `GPU-1241dcbc-…`, `DA:00.0` only when selected explicitly) | `tools/common.sh` |
+| Card used | **GPU 3 since 2026-10-25**: `GPU-1241dcbc-33ea-80bf-5f87-37f7868c3126`, PCI `00000000:DA:00.0`, serial 1793225008254 (H100 NVL, 400 W, ECC on, MIG off, checked 2026-10-25). Experiments 01–08 and the clock selection of §2 ran on GPU 2 (`GPU-428e544c-5649-1dde-a6bf-95de7485dd6a`, PCI `00000000:C3:00.0`, serial 1793225009411), now used only when selected explicitly. Card-specific results (SM→GPC map, fused-off TPCs, L2 labels) are re-checked on GPU 3 by the GPU-3 bring-up row of `AGENTS.md` | `tools/common.sh`, `nvidia-smi` |
 | Compute capability / SASS target | 9.0 / `sm_90a` | `cudaDeviceProp`, ncu |
 | SMs / TPCs | **132** / 66 (`launch__tpc_count`) | `cudaDeviceProp`, ncu |
 | L2 cache | **60 MiB** (62 914 560 B) as reported (`cudaDeviceProp.l2CacheSize`, ncu `device__attribute_l2_cache_size`). Max persisting L2: 37.5 MiB. Partition/slice structure: settled by 08/13 | measured |
@@ -26,7 +26,7 @@ Binding for experiments 01–17 (18 only aggregates). An experiment may deviate 
 
 | Setting | Value | Rationale |
 |---|---|---|
-| SM clock | **locked at 1635 MHz** (`tools/run --profile --lock-sm-mhz 1635`) | Highest clock this card sustains under the suite's heaviest load (full-chip HBM copy 3.38 TB/s, L2 streaming 6.91 TB/s). Selected by `tools/clocktest/select_clock.sh` on 2026-10-23 (data: `docs/environment/clock_selection/`). Every lock from 1785 to 1665 MHz ran at exactly 1635 MHz under load, with no throttle reason flagged, about 357 W of 400 W, and ≤ 51 °C GPU / 68 °C HBM. 1635 MHz is the card's own ceiling under sustained load, so locking there gives the same clock for light and heavy kernels (a light probe kernel runs at 1630 MHz under the lock, vs 1778 MHz unlocked). Not copied from prior work, whose chips and limits differ (§4) |
+| SM clock | **locked at 1635 MHz** (`tools/run --profile --lock-sm-mhz 1635`); selected on GPU 2 — valid for GPU 3 once the GPU-3 bring-up confirms it (update this row if it does not) | Highest clock this card sustains under the suite's heaviest load (full-chip HBM copy 3.38 TB/s, L2 streaming 6.91 TB/s). Selected by `tools/clocktest/select_clock.sh` on 2026-10-23 (data: `docs/environment/clock_selection/`). Every lock from 1785 to 1665 MHz ran at exactly 1635 MHz under load, with no throttle reason flagged, about 357 W of 400 W, and ≤ 51 °C GPU / 68 °C HBM. 1635 MHz is the card's own ceiling under sustained load, so locking there gives the same clock for light and heavy kernels (a light probe kernel runs at 1630 MHz under the lock, vs 1778 MHz unlocked). Not copied from prior work, whose chips and limits differ (§4) |
 | Memory clock | 2619 MHz (default; not locked, never changed) | the only full-speed HBM3 state; recorded and checked per run |
 | Power limit | 400 W as found; never changed by us | the clock selection is valid only at this limit: if it differs, refuse to run and re-run the selection |
 | ECC, MIG, compute mode | as in §1; never changed | ECC changes DRAM bandwidth and needs a reset; MIG would change SM/L2 topology |
