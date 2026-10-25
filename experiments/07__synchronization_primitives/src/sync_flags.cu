@@ -45,7 +45,20 @@
  *   k4_arrive_relaxed     remote_mbarrier_arrive_relaxed  the same with .relaxed.cluster
  *   k4_gmem_flag          gmem_flag_release_acquire       st.release.gpu / ld.acquire.gpu spin on global flags; rank q's flag at
  *                                                         base + off, rank p's at base + off + 128, variants off0 / off4096 (base 8-KiB aligned: the
- *                                                         two 4-KiB pages have opposite L2 home partitions); flags reset per launch
+ *                                                         two 4-KiB pages have opposite L2 home partitions); flags reset per launch.
+ *                         Home label (modes k4 and k4cs16, every global-flag measurement point, after the flag buffer is
+ *                         allocated and before the warm-up launches): L2 flush (hb::L2Flusher, 128 MB read-modify-write);
+ *                         a claimed one-warp block on SM kHomeWriterSm = 0 (partition 0 in the 03 map) writes both flag lines
+ *                         completely (st.global, 32 lanes × 4 B per line: a partially written line would be filled from HBM
+ *                         on the next read and time as a miss); a claimed one-warp block on SM kHomeReaderSm = 2 (partition 1) first reads a
+ *                         third line of the same 4-KiB page (+1 KiB; TLB warm-up, untimed), then reads each flag line once with
+ *                         ld.global.cg between two %clock64 reads (t0 after the warm-up value, t1 after the loaded value).
+ *                         The writer leaves a copy in partition 0 only, so the reader's first read is near (home = partition 1)
+ *                         or far (home = partition 0): threshold kHomeThreshold = 350 cycles (near ≈ 250–280, far ≈ 420–445
+ *                         on this device). Both lines lie in one 4-KiB page (one home); if they disagree the label is "M".
+ *                         The SM partitions are checked against the 03 map's partition column (the run stops otherwise).
+ *                         The label is appended to the variant ("_home0" / "_home1" / "_homeM") and printed with both
+ *                         probe times; the flags are then re-zeroed by every launch as before.
  *   k4_cluster_sync       cluster_sync (32 threads)       rank q: t0; g_send; cluster.sync(); cluster.sync(); t1;
  *                                                         rank p: cluster.sync(); g_recv; cluster.sync()
  * Every poll loop is capped at 2^26 polls: a timeout sets an error count and ends the launch; data mismatches
@@ -55,13 +68,15 @@
  *     smid_dst = rank p, one_way_ns, round_trip_cycles, block_threads (1; 32 for cluster_sync), variant = method
  *     variant (push / pull / off0 / off4096) + "_r0<p>" in mode k4 (e.g. push_r01, off4096_r02) or
  *     "_cs16_tpc<a>-<b>" in mode k4cs16 (a, b = TPC indices of rank q's and rank p's SM in their GPC; the TPC mate
- *     pair is tpc0-0; e.g. push_cs16_tpc0-3), rep = i. Per-iteration values are buffered in __shared__ and copied to
+ *     pair is tpc0-0; e.g. push_cs16_tpc0-3), global flag + "_home<h>" (h = measured home partition of the flag
+ *     line, see k4_gmem_flag; e.g. off0_r01_home1, off4096_cs16_tpc0-3_home0), rep = i. Per-iteration values are buffered in __shared__ and copied to
  *     global memory after the teardown.
  *   → results/07__sync__primitives__k4.csv: the k0 timer-floor rows of this run (k_timer_floor).
  * ncu mode: every (placement, method) once (1024 reps); manifest bin/ncu_manifest_k4.csv (one row per profiled launch, in order).
  */
 #include <algorithm>
 #include <cstring>
+#include <fstream>
 #include <string>
 #include <vector>
 
@@ -264,6 +279,31 @@ __global__ void __launch_bounds__(32) k4_place(uint32_t* info) {
     cluster_sync();  // all CTAs co-resident until every rank has recorded
 }
 
+// Home-partition label of the two flag lines (see the docstring, k4_gmem_flag). One-warp blocks pinned by claim.
+__device__ __forceinline__ uint32_t ld_cg_u32(const uint32_t* a) {
+    uint32_t v; asm volatile("ld.global.cg.u32 %0, [%1];" : "=r"(v) : "l"(a) : "memory"); return v; }
+__global__ void __launch_bounds__(32) k4_home_write(uint32_t* f, uint32_t target, uint32_t* claim) {
+    if (!claim_target_sm(target, claim)) return;
+    // whole lines (32 lanes × 4 B per line): a partially written line would need a fill from HBM on the next read,
+    // which then times as a miss whatever the home
+    for (int k = 0; k < 2; ++k)
+        asm volatile("st.global.u32 [%0], %1;" :: "l"(f + 32 * k + threadIdx.x), "r"(0x5eedu) : "memory");
+}
+// out[0..1] = cycles of the first read of line 0 / line 1 (f, f + 128 B); out[2] = smid; tlb = another line of the page.
+__global__ void __launch_bounds__(32) k4_home_read(const uint32_t* f, const uint32_t* tlb, uint32_t target, uint32_t* claim,
+                                                   uint32_t zero, uint32_t* out) {
+    if (!claim_target_sm(target, claim)) return;
+    if (threadIdx.x != 0) return;
+    uint32_t w = ld_cg_u32(tlb);
+    for (int k = 0; k < 2; ++k) {
+        const uint64_t t0 = read_clock64_after(w, zero);
+        w = ld_cg_u32(f + 32 * k + (w & zero));
+        const uint64_t t1 = read_clock64_after(w, zero);
+        out[k] = (uint32_t)(t1 - t0);
+    }
+    out[2] = read_smid() + (w & zero);
+}
+
 using K4Fn = void (*)(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t*, uint64_t*, uint32_t*, uint32_t*);
 struct K4Case { K4Fn k; const char* kname; const char* primitive; const char* variant; uint32_t goff; int bt; };
 static const K4Case kCases[] = {
@@ -326,12 +366,86 @@ static double median(std::vector<long long> v) {
     return (double)v[v.size() / 2];
 }
 
+constexpr uint32_t kHomeWriterSm = 0, kHomeReaderSm = 2, kHomeThreshold = 350;
+
+// partition[smid] from the latest run_id of the 03 map (column "partition"); -1 where empty.
+static std::vector<int> load_partition_map(int sm_count, const char* path = "../03__sm_gpc_topology/results/03__sm_gpc_topology__map.csv") {
+    std::ifstream f(path);
+    if (!f) hb::die(std::string("cannot open the 03 map ") + path);
+    auto split = [](const std::string& l) {  // CSV fields, double quotes honoured
+        std::vector<std::string> v(1);
+        bool q = false;
+        for (char ch : l) {
+            if (ch == '"') q = !q;
+            else if (ch == ',' && !q) v.emplace_back();
+            else v.back() += ch;
+        }
+        return v;
+    };
+    std::string line;
+    std::getline(f, line);
+    const auto h = split(line);
+    const int cr = (int)(std::find(h.begin(), h.end(), "run_id") - h.begin()), cs = (int)(std::find(h.begin(), h.end(), "smid") - h.begin()),
+              cp = (int)(std::find(h.begin(), h.end(), "partition") - h.begin());
+    if (cp >= (int)h.size() || cs >= (int)h.size() || cr >= (int)h.size()) hb::die("03 map lacks run_id/smid/partition columns");
+    std::vector<std::vector<std::string>> rows;
+    std::string latest;
+    while (std::getline(f, line)) {
+        auto r = split(line);
+        if ((int)r.size() <= cp) continue;
+        if (r[cr] > latest) latest = r[cr];
+        rows.push_back(std::move(r));
+    }
+    std::vector<int> part(sm_count, -1);
+    for (const auto& r : rows) {
+        if (r[cr] != latest || r[cp].empty()) continue;
+        const int sm = std::stoi(r[cs]);
+        if (sm >= 0 && sm < sm_count) part[sm] = (int)std::stod(r[cp]);
+    }
+    return part;
+}
+
+// Measured home partition of the two flag lines at f (see the docstring): "0", "1" or "M" (the two lines disagree).
+static std::string label_home(hb::Run& run, uint32_t* f) {
+    static const std::vector<int> part = load_partition_map(run.dev().sm_count);
+    if (part[kHomeWriterSm] != 0 || part[kHomeReaderSm] != 1)
+        hb::die("home probe: SM " + std::to_string(kHomeWriterSm) + " / " + std::to_string(kHomeReaderSm) +
+                " are not in partitions 0 / 1 of the 03 map");
+    static hb::L2Flusher flush;
+    static hb::SmClaim claim;
+    static DevBuf<uint32_t> out(4);
+    const int nb = hb::SmClaim::blocks(run.dev().sm_count);
+    for (int tries = 0;; ++tries) {
+        if (tries > 20) hb::die("home probe: could not claim SM 0 and SM 2");
+        flush();
+        claim.reset();
+        k4_home_write<<<nb, 32>>>(f, kHomeWriterSm, claim.ptr());
+        CUDA_CHECK(cudaGetLastError());
+        CUDA_CHECK(cudaDeviceSynchronize());
+        if (!claim.ok(kHomeWriterSm)) continue;
+        claim.reset();
+        out.zero();
+        k4_home_read<<<nb, 32>>>(f, f + 256, kHomeReaderSm, claim.ptr(), 0u, out.d);
+        CUDA_CHECK(cudaGetLastError());
+        CUDA_CHECK(cudaDeviceSynchronize());
+        if (claim.ok(kHomeReaderSm)) break;
+    }
+    const std::vector<uint32_t> c = out.get();
+    const int h0 = c[0] < kHomeThreshold ? 1 : 0, h1 = c[1] < kHomeThreshold ? 1 : 0;  // near for SM 2 ⇒ home = its partition 1
+    const std::string h = h0 == h1 ? std::to_string(h0) : "M";
+    std::printf("k4 home probe: flag lines at +0 / +128 B read by SM %u after a write by SM %u: %u / %u cycles -> home %s\n",
+                kHomeReaderSm, kHomeWriterSm, c[0], c[1], h.c_str());
+    return h;
+}
+
 static void k4_point(Out07& o, const K4Case& c, const K4Pair& q, uint32_t reps, int launches) {
     K4Bufs b(reps);
     std::vector<uint32_t> info;
     const int disc0 = o.discarded;
+    // Global flag: label the home partition of the flag lines of this buffer before any launch of this point.
+    const std::string home = c.k == k4_gmem_flag ? "_home" + label_home(o.run, b.gflag.d + c.goff / 4) : "";
     for (int w = 0; w < kWarmups; ++w) k4_launch(c, q, reps, b, info);
-    const std::string variant = pair_variant(c, q);
+    const std::string variant = pair_variant(c, q) + home;
     const std::string label = std::string("k4_") + c.primitive + "_" + variant + "_cs" + std::to_string(q.cs);
     std::vector<long long> all_rt, all_ow;
     for (int l = 0, tries = 0; l < launches;) {

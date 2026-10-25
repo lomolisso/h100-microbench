@@ -13,6 +13,8 @@
   net_lds(k1)                    K1 CTA-barrier rows net of the dependent shared load that closes their timed region
                                  (the one netting rule of the notebook and of summarize.py)
   stats(df, by, col)             median, p5, p95, mean, n per group
+  sm_map() / k4_method(p, part)  latest SM map of this device (gpc, partition) / K4 method labels, the global flag
+                                 labelled by where its measured home lies relative to the pair
   sass_cfg / timed_windows / window_pcs   the timed region (t0 → t1 %clock64 pair) of every profiled kernel, found in
                                  the SASS of the ncu source export (stall attribution restricted to the timed window)
 """
@@ -22,6 +24,7 @@ import io
 import os
 import re
 
+import numpy as np
 import pandas as pd
 from pandas.api.types import union_categoricals
 
@@ -144,6 +147,33 @@ def stats(df, by, col="per_op"):
     g = df.groupby(by, observed=True)[col]
     return pd.DataFrame({"median": g.median(), "p5": g.quantile(0.05), "p95": g.quantile(0.95), "mean": g.mean(),
                          "n": g.size()}).reset_index()
+
+
+MAP03 = "../03__sm_gpc_topology/results/03__sm_gpc_topology__map.csv"
+
+
+def sm_map(path=MAP03):
+    """Latest run_id of the SM map (smid → gpc, partition, subnode)."""
+    m = pd.read_csv(path)
+    return m[m.run_id == m.run_id.max()].set_index("smid")
+
+
+def k4_method(p, part=None):
+    """Method label of K4 propagation rows: the primitive; for the global flag also the flag page ("off0" / "off4096")
+    or, for runs that labelled the flag line's home in-run (variant suffix _home<h>), where the home lies relative to
+    the pair: "home in pair's partition", "home in other partition", "pair across partitions" or "home unresolved".
+    part: smid → L2 partition (sm_map().partition); needed for labelled runs."""
+    prim = p.primitive.astype(str)
+    var = p.variant.astype(str)
+    home = var.str.extract(r"_home(\w)$")[0]
+    lab = " (" + var.str.split("_").str[0] + ")"
+    if home.notna().any():
+        ps, pd_ = p.smid_src.map(part), p.smid_dst.map(part)
+        h = pd.to_numeric(home, errors="coerce")
+        rel = np.where(ps != pd_, "pair across partitions", np.where(h.isna(), "home unresolved",
+                       np.where(h == ps, "home in pair's partition", "home in other partition")))
+        lab = pd.Series(np.where(home.notna(), " (" + pd.Series(rel, index=p.index) + ")", lab), index=p.index)
+    return pd.Series(np.where(prim == "gmem_flag_release_acquire", prim + lab, prim), index=p.index)
 
 
 # ---------------------------------------------------------------- timed windows in the profiled SASS (stall attribution)

@@ -73,6 +73,120 @@ identifier = src/sync_flags.cu
 		..........
 
 
+		Function : _Z12k4_home_readPKjS0_jPjjS1_
+	.headerflags	@"EF_CUDA_TEXMODE_UNIFIED EF_CUDA_64BIT_ADDRESS EF_CUDA_ACCELERATORS EF_CUDA_SM90 EF_CUDA_VIRTUAL_SM(EF_CUDA_SM90)"
+        /*0000*/                   LDC R1, c[0x0][0x28] ;
+        /*0010*/                   S2R R8, SR_TID.X ;
+        /*0020*/                   S2UR UR4, SR_VIRTUALSMID ;
+        /*0030*/                   BSSY B0, 0x130 ;
+        /*0040*/                   IMAD.MOV.U32 R0, RZ, RZ, RZ ;
+        /*0050*/                   LDC R5, c[0x0][0x220] ;
+        /*0060*/                   ISETP.NE.AND P0, PT, R5, UR4, PT ;
+        /*0070*/                   ULDC.64 UR4, c[0x0][0x208] ;
+        /*0080*/                   ISETP.NE.OR P0, PT, R8, RZ, P0 ;
+        /*0090*/               @P0 BRA 0x120 ;
+        /*00a0*/                   S2R R4, SR_CTAID.X ;
+        /*00b0*/                   LDC.64 R2, c[0x0][0x228] ;
+        /*00c0*/                   IMAD.MOV.U32 R6, RZ, RZ, RZ ;
+        /*00d0*/                   VIADD R7, R4, 0x1 ;
+        /*00e0*/                   ATOMG.E.CAS.STRONG.GPU PT, R4, [R2], R6, R7 ;
+        /*00f0*/                   ISETP.NE.AND P0, PT, R4, RZ, PT ;
+        /*0100*/              @!P0 STG.E desc[UR4][R2.64+0x4], R5 ;
+        /*0110*/              @!P0 IMAD.MOV.U32 R0, RZ, RZ, 0x1 ;
+        /*0120*/                   BSYNC B0 ;
+        /*0130*/                   SHFL.IDX PT, R0, R0, RZ, 0x1f ;
+        /*0140*/                   ISETP.NE.AND P0, PT, R0, RZ, PT ;
+        /*0150*/                   ISETP.NE.OR P0, PT, R8, RZ, !P0 ;
+        /*0160*/               @P0 EXIT ;
+        /*0170*/                   LDC.64 R2, c[0x0][0x218] ;
+        /*0180*/                   ULDC UR6, c[0x0][0x230] ;
+        /*0190*/                   LDG.E.STRONG.GPU R2, desc[UR4][R2.64] ;
+        /*01a0*/                   LOP3.LUT R7, R2, UR6, RZ, 0xc0, !PT ;
+        /*01b0*/                   CS2R R4, SR_CLOCKLO ;
+        /*01c0*/                   LDC.64 R8, c[0x0][0x210] ;
+        /*01d0*/                   IMAD.WIDE.U32 R2, R7, 0x4, R8 ;
+        /*01e0*/                   LDG.E.STRONG.GPU R2, desc[UR4][R2.64] ;
+        /*01f0*/                   IMAD.IADD R0, R4, 0x1, R7 ;
+        /*0200*/                   LOP3.LUT R11, R2, UR6, RZ, 0xc0, !PT ;
+        /*0210*/                   CS2R R4, SR_CLOCKLO ;
+        /*0220*/                   LDC.64 R2, c[0x0][0x238] ;
+        /*0230*/                   IADD3 R5, -R0, R4, R11 ;
+        /*0240*/                   STG.E desc[UR4][R2.64], R5 ;
+        /*0250*/                   CS2R R6, SR_CLOCKLO ;
+        /*0260*/                   IMAD.WIDE.U32 R4, R11, 0x4, R8 ;
+        /*0270*/                   LDG.E.STRONG.GPU R4, desc[UR4][R4.64+0x80] ;
+        /*0280*/                   IMAD.IADD R7, R6, 0x1, R11 ;
+        /*0290*/                   LOP3.LUT R9, R4, UR6, RZ, 0xc0, !PT ;
+        /*02a0*/                   CS2R R4, SR_CLOCKLO ;
+        /*02b0*/                   S2UR UR6, SR_VIRTUALSMID ;
+        /*02c0*/                   IADD3 R7, -R7, R4, R9 ;
+        /*02d0*/                   STG.E desc[UR4][R2.64+0x4], R7 ;
+        /*02e0*/                   VIADD R5, R9, UR6 ;
+        /*02f0*/                   STG.E desc[UR4][R2.64+0x8], R5 ;
+        /*0300*/                   EXIT ;
+        /*0310*/                   BRA 0x310;
+        /*0320*/                   NOP;
+        /*0330*/                   NOP;
+        /*0340*/                   NOP;
+        /*0350*/                   NOP;
+        /*0360*/                   NOP;
+        /*0370*/                   NOP;
+        /*0380*/                   NOP;
+        /*0390*/                   NOP;
+        /*03a0*/                   NOP;
+        /*03b0*/                   NOP;
+        /*03c0*/                   NOP;
+        /*03d0*/                   NOP;
+        /*03e0*/                   NOP;
+        /*03f0*/                   NOP;
+		..........
+
+
+		Function : _Z13k4_home_writePjjS_
+	.headerflags	@"EF_CUDA_TEXMODE_UNIFIED EF_CUDA_64BIT_ADDRESS EF_CUDA_ACCELERATORS EF_CUDA_SM90 EF_CUDA_VIRTUAL_SM(EF_CUDA_SM90)"
+        /*0000*/                   LDC R1, c[0x0][0x28] ;
+        /*0010*/                   S2R R5, SR_TID.X ;
+        /*0020*/                   S2UR UR4, SR_VIRTUALSMID ;
+        /*0030*/                   BSSY B0, 0x130 ;
+        /*0040*/                   IMAD.MOV.U32 R0, RZ, RZ, RZ ;
+        /*0050*/                   LDC R7, c[0x0][0x218] ;
+        /*0060*/                   ISETP.NE.AND P0, PT, R7, UR4, PT ;
+        /*0070*/                   ULDC.64 UR4, c[0x0][0x208] ;
+        /*0080*/                   ISETP.NE.OR P0, PT, R5, RZ, P0 ;
+        /*0090*/               @P0 BRA 0x120 ;
+        /*00a0*/                   S2R R4, SR_CTAID.X ;
+        /*00b0*/                   LDC.64 R2, c[0x0][0x220] ;
+        /*00c0*/                   IMAD.MOV.U32 R8, RZ, RZ, RZ ;
+        /*00d0*/                   IADD3 R9, R4, 0x1, RZ ;
+        /*00e0*/                   ATOMG.E.CAS.STRONG.GPU PT, R4, [R2], R8, R9 ;
+        /*00f0*/                   ISETP.NE.AND P0, PT, R4, RZ, PT ;
+        /*0100*/              @!P0 STG.E desc[UR4][R2.64+0x4], R7 ;
+        /*0110*/              @!P0 IMAD.MOV.U32 R0, RZ, RZ, 0x1 ;
+        /*0120*/                   BSYNC B0 ;
+        /*0130*/                   SHFL.IDX PT, R0, R0, RZ, 0x1f ;
+        /*0140*/                   ISETP.NE.AND P0, PT, R0, RZ, PT ;
+        /*0150*/              @!P0 EXIT ;
+        /*0160*/                   LDC.64 R2, c[0x0][0x210] ;
+        /*0170*/                   HFMA2.MMA R7, -RZ, RZ, 0, 443.25 ;
+        /*0180*/                   IMAD.WIDE.U32 R2, R5, 0x4, R2 ;
+        /*0190*/                   STG.E desc[UR4][R2.64], R7 ;
+        /*01a0*/                   STG.E desc[UR4][R2.64+0x80], R7 ;
+        /*01b0*/                   EXIT ;
+        /*01c0*/                   BRA 0x1c0;
+        /*01d0*/                   NOP;
+        /*01e0*/                   NOP;
+        /*01f0*/                   NOP;
+        /*0200*/                   NOP;
+        /*0210*/                   NOP;
+        /*0220*/                   NOP;
+        /*0230*/                   NOP;
+        /*0240*/                   NOP;
+        /*0250*/                   NOP;
+        /*0260*/                   NOP;
+        /*0270*/                   NOP;
+		..........
+
+
 		Function : _Z8k4_placePj
 	.headerflags	@"EF_CUDA_TEXMODE_UNIFIED EF_CUDA_64BIT_ADDRESS EF_CUDA_ACCELERATORS EF_CUDA_SM90 EF_CUDA_VIRTUAL_SM(EF_CUDA_SM90)"
         /*0000*/                   LDC R1, c[0x0][0x28] ;
