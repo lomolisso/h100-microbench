@@ -27,7 +27,7 @@ Goal of this context file: give the coding agents (a) what is known about how H1
 - Caveats for comparisons: single-load timing (no dependency), SM2SM "latency" = ILP-8 loaded latency, GB/s from `prop.clockRate`, their H100 is a PCIe card with 7 GPCs (18/16×6).
 
 ### 1.4 DRAM side
-- HBM3, 94 GB, 6016-bit bus = 94 × 64-bit channels on 12 FBPAs (one of them 384 bit) [`10`, INF]; read 3.68 / write 3.64 TB/s; one SM reads ≈ 99 GB/s; **half of all HBM traffic crosses the partition link** (0.505 link sectors per HBM sector) [MEAS 05]; miss latency 505 near / 667 far home (+ ≈ 6.5 % slow tail ≈ 856) [MEAS 04/08]; per-GPC dependence of the miss penalty untested beyond SMs 0/2 → `14`.
+- HBM3, 94 GB, 6016-bit bus = 94 × 64-bit channels on 12 FBPAs (one of them 384 bit) [`10`, INF]; read 3.70 / write 3.62 TB/s (writes: bytes that reached HBM during the kernel); one SM reads ≈ 98 GB/s; **half of all HBM traffic crosses the partition link** (0.505 link sectors per HBM sector) [MEAS 05]; miss latency 505 near / 667 far home (+ ≈ 6.5 % slow tail ≈ 856) [MEAS 04/08]; per-GPC dependence of the miss penalty untested beyond SMs 0/2 → `14`.
 - No public channel/bank mapping for H100 HBM3 [LIT survey]. GPUHammer's row-buffer-conflict timing method (GDDR6 A6000: 256 B chunks map to one row/bank, successive chunks rotate banks, threshold ≈ 25–30 ns between hit and conflict) is the template; HBM3 has 16 channels × 2 pseudo-channels per stack, 16 banks (4 bank groups) each [INF from the HBM3 spec; accel-sim uses `nbk=16`, `nbkgrp=4`].
 - Whether SM→memory-controller distance is visible in DRAM latency is [INF]; the partition split already contributes +162 cycles on a miss [MEAS 08], so the question is whether a *second-order* term (which of the 12 FBPAs) exists (`14`).
 

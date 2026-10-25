@@ -13,7 +13,9 @@
  *   mix11  1 read + 1 write: g < n4/2, ILP elements per step: reads in[g…], then writes out[g…] (50/50 by bytes); the
  *          stored value is the element index, so the stores issue right behind the loads (two independent streams).
  *   Timed region per block: bar.sync → thread 0 %clock64/%globaltimer → loop → bar.sync → timers after the block's
- *   last loaded value. GPU-wide time: cudaEvent pair around the launch. bytes = elements read + written × 16 B.
+ *   last loaded value. GPU-wide time: cudaEvent pair around the launch (tbps in the CSV as measured; the analysis
+ *   subtracts the event floor of experiment 01 and the written bytes still dirty in L2 at kernel end, common05.py).
+ *   bytes = elements read + written × 16 B.
  *   Before every launch (warm-ups included) the L2 is flushed and left holding only clean lines (CleanL2,
  *   bw_common.hpp), so no write-back of earlier data overlaps the timed kernel.
  * Configurations (2 warm-up + 10 recorded launches):

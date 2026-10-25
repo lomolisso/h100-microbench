@@ -2,11 +2,12 @@
  * bw_l2.cu — experiment 05, K3 + K5 (L2 part): L2 read/store bandwidth GPU-wide, per partition and per SM, for data
  * homed in the reader's own L2 partition ("local"), in the other partition ("remote"), or both ("mixed").
  *
- * Usage: bin/bw_l2 {k3|link|ncu|clockcheck} [--quick] [--label L]. One invocation = one run_id.
+ * Usage: bin/bw_l2 {k3|link|firstpass|storecopy|ncu|ncufp|clockcheck} [--quick] [--label L]. One invocation = one run_id.
  *
  * Partitions. Each SM belongs to one of two L2 partitions through its GPC (bw_common.hpp). Each 128 B line has a home
- * partition fixed by its address; an access from the other partition leaves a copy of the line in the accessor's
- * partition, so every repeated access is a near hit (measured in experiment 04).
+ * partition fixed by its address; any read or write from the other partition leaves a copy of the line in the accessor's
+ * partition, so every repeated read is a near hit (measured in experiments 04 and 08; storecopy mode below checks it
+ * for stores). A store is also written through to the line's home, so a remote store crosses the partition link once.
  *
  * Step 1 — home labelling (every invocation; buffer of kBuf = 96 MiB, 32 MiB with --quick, from cudaMalloc).
  *   Per 8 MiB chunk (65 536 lines): L2 flush (hb::L2Flusher) → touch_lines on SM A (smid 0, partition 0) writes every
@@ -63,14 +64,19 @@
  * link mode (partition link): the same streaming kernel with only the blocks on SMs of a chosen set of GPCs working
  *   (bitmask; the others exit at once): {G1}, {G1,G2}, {G1,G2,G3}, partition 1, {G4}, {G4,G5}, {G4,G5,G6}, partition 0,
  *   both partitions. Per set: steady state at 16 MiB of st local, st remote, ld local (2 × 132 blocks × 1024 threads,
- *   ILP 4; stores never leave a copy in the writer's partition, so remote stores cross the link on every pass), and the
- *   first-pass test, ld local and remote, 48 MiB prefix, 1 block × 512 threads per SM.
+ *   ILP 4; every remote store is written through to its home and crosses the link, on every pass, although it also
+ *   leaves a copy in the writer's partition), and the first-pass test, ld local and remote, 48 MiB prefix, 1 block ×
+ *   512 threads per SM (≈ 32 KiB of loads in flight per SM: start-up limited, superseded by firstpass mode).
  *   → results/05__bandwidth__l2_link.csv and 05__bandwidth__l2_link_blocks.csv: the columns of the k3 files, with
  *     reader_gpc_mask (GPC bitmask) in place of reader_mask. Labels → 05__bandwidth__l2_home.csv as in k3 mode.
  * ncu mode (application replay, --cache-control none; see src/run.sh): labelling, then one k3_ncu launch in which every
  *   block exits at once (the counters the profiler itself adds), then for each profiled configuration the warm-up
  *   launches (k3_stream) and one k3_ncu launch; first-pass configurations profile pass 1 and pass 2.
  *   Writes bin/ncu_manifest_l2.csv.
+ * storecopy, firstpass, ncufp modes: see run_storecopy / run_firstpass / run_ncufp below (stores leave a copy;
+ *   first-pass rates from the slope over payload with 2 × 1024 threads per SM, L2 residency checked by timing a sample;
+ *   the same under ncu with a same-grid all-exit baseline in the same session).
+ * Bandwidth: GPU-wide tbps = bytes / cudaEvent time as measured; the analysis subtracts the event-pair floor (01).
  * --quick: 32 MiB buffer, F ∈ {4, 16, 28} MiB, short lists of other configurations, 3 recorded launches.
  */
 #include <algorithm>
@@ -114,6 +120,26 @@ __global__ void __launch_bounds__(32) probe_lines(const char* buf, uint32_t firs
         asm volatile("ld.global.cg.u32 %0, [%1];" : "=r"(v) : "l"(a) : "memory");
         const uint64_t t1 = read_clock64_after(v, zero);
         out[i] = (uint16_t)(t1 - t0 > 65535 ? 65535 : t1 - t0);
+        dep = v;
+    }
+}
+
+// Like probe_lines, for the listed lines (indices from global memory): t0 waits for the list entry, so the list read is
+// outside the timed interval. Also returns the loaded word (value checks).
+__global__ void __launch_bounds__(32) probe_list(const char* buf, const uint32_t* lines, uint32_t n, uint32_t target, uint32_t* claim,
+                                                 uint64_t zero, uint16_t* out, uint32_t* val) {
+    if (!claim_target_sm(target, claim)) return;
+    if (threadIdx.x != 0) return;
+    uint64_t dep = 0;
+    for (uint32_t i = 0; i < n; ++i) {
+        const uint32_t li = lines[i + (uint32_t)(dep & zero)];
+        const uint64_t a = (uint64_t)buf + (uint64_t)li * kLine;
+        const uint64_t t0 = read_clock64_after(li, zero);
+        uint32_t v;
+        asm volatile("ld.global.cg.u32 %0, [%1];" : "=r"(v) : "l"(a) : "memory");
+        const uint64_t t1 = read_clock64_after(v, zero);
+        out[i] = (uint16_t)(t1 - t0 > 65535 ? 65535 : t1 - t0);
+        val[i] = v;
         dep = v;
     }
 }
@@ -814,6 +840,210 @@ static void run_link(Ctx& x, bool quick) {
     x.run.lock_clocks_note("link", "after");
 }
 
+// ---------------------------------------------------------------- probes of sampled lines (storecopy, firstpass)
+struct Sample {
+    std::vector<uint32_t> lines;  // line indices, ascending
+    uint32_t* d_lines = nullptr;
+    uint16_t* d_cyc = nullptr;
+    uint32_t* d_val = nullptr;
+};
+// n lines evenly spaced over v[0, len) (the whole range the pass reads, not only its start).
+static Sample make_sample(const std::vector<uint32_t>& v, uint32_t len, uint32_t n) {
+    Sample s;
+    n = std::min(n, len);
+    for (uint32_t i = 0; i < n; ++i) s.lines.push_back(v[(uint64_t)i * len / n]);
+    CUDA_CHECK(cudaMalloc(&s.d_lines, n * sizeof(uint32_t)));
+    CUDA_CHECK(cudaMemcpy(s.d_lines, s.lines.data(), n * sizeof(uint32_t), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMalloc(&s.d_cyc, n * sizeof(uint16_t)));
+    CUDA_CHECK(cudaMalloc(&s.d_val, n * sizeof(uint32_t)));
+    return s;
+}
+static void free_sample(Sample& s) { cudaFree(s.d_lines); cudaFree(s.d_cyc); cudaFree(s.d_val); }
+static void probe_sample(Ctx& x, const Sample& s, uint32_t sm, std::vector<uint16_t>& cyc, std::vector<uint32_t>& val) {
+    const uint32_t n = (uint32_t)s.lines.size();
+    for (int t = 0; t < kMaxClaimRetries; ++t) {
+        x.claim.reset();
+        probe_list<<<hb::SmClaim::blocks(x.sm_count), 32>>>(x.d_buf, s.d_lines, n, sm, x.claim.ptr(), 0, s.d_cyc, s.d_val);
+        CUDA_CHECK(cudaGetLastError());
+        CUDA_CHECK(cudaDeviceSynchronize());
+        if (x.claim.ok(sm)) {
+            cyc.resize(n);
+            val.resize(n);
+            CUDA_CHECK(cudaMemcpy(cyc.data(), s.d_cyc, n * sizeof(uint16_t), cudaMemcpyDeviceToHost));
+            CUDA_CHECK(cudaMemcpy(val.data(), s.d_val, n * sizeof(uint32_t), cudaMemcpyDeviceToHost));
+            return;
+        }
+    }
+    hb::die("probe_sample: could not pin SM " + std::to_string(sm));
+}
+static std::vector<std::string> probe_cols() {
+    return hb::with_mandatory({"case", "footprint_bytes", "line_home", "probe_smid", "probe_partition", "rep", "line_offset", "cycles", "value",
+                               "value_ok", "thr_cycles"});
+}
+static void write_probe(Ctx& x, hb::CsvWriter& csv, const std::string& cs_name, uint64_t footprint, int home, uint32_t sm, int rep,
+                        const Sample& s, const std::vector<uint16_t>& cyc, const std::vector<uint32_t>& val, uint32_t expect, double thr) {
+    const hb::ClockSample cs = x.run.clock_note(cs_name, "probe", x.launch_idx);
+    const std::string pre = x.run.prefix(x.launch_idx, cs);
+    for (size_t i = 0; i < s.lines.size(); ++i) {
+        char r[512];
+        std::snprintf(r, sizeof r, "%s,%s,%llu,%d,%u,%d,%d,%llu,%u,%u,%d,%.1f", pre.c_str(), cs_name.c_str(), (unsigned long long)footprint, home,
+                      sm, x.part[sm], rep, (unsigned long long)s.lines[i] * kLine, cyc[i], val[i], val[i] == expect, thr);
+        csv.add(r);
+    }
+    csv.flush();
+    ++x.launch_idx;
+}
+
+// storecopy mode: does a store leave a copy in the writer's partition? 16 MiB of lines homed in partition 0 (prefix of
+// the buffer). Per case and rep: fill the lines with 0xA5 bytes → CleanL2 (lines only in HBM) → store pass (one rep of
+// the streaming kernel writing 0) by the GPCs of one partition → one warp probes 1024 evenly spaced lines of the set
+// (first read, %clock64) from the first SM of G1 (partition 1) or G4 (partition 0). Cases:
+//   p1_store_probe_p1  remote stores (partition 1 writes lines homed in 0), probe in 1: near ⇔ the store left a copy in 1
+//   p1_store_probe_p0  same stores, probe at home: near ⇔ the home holds the line (write-through)
+//   p0_store_probe_p1  local stores (partition 0 writes its own lines), probe in 1: the far reference
+//   p0_store_probe_p0  local stores, probe at home: the near reference
+//   no_store_probe_p1  no store: the HBM reference (value 0xA5A5A5A5)
+//   → results/05__bandwidth__storecopy.csv (one row per probed line).
+static void run_storecopy(Ctx& x, bool quick) {
+    const Labels lb = label_homes(x, false);
+    upload_lists(x, lb);
+    const int reps = quick ? 2 : 5, B2 = 2 * x.sm_count;
+    const uint64_t F = 16 * kMiB;
+    const uint32_t len = lines_in_prefix(x.home_lines[0], (uint32_t)(F / kLine));
+    Sample s = make_sample(x.home_lines[0], len, 1024);
+    const uint32_t P1 = (uint32_t)first_sm_of_gpc(x.gpc, 1), P0 = (uint32_t)first_sm_of_gpc(x.gpc, 4);
+    if (x.part[P1] != 1 || x.part[P0] != 0) hb::die("probe SMs are not in partitions 1/0");
+    hb::CsvWriter csv(hb::Run::results("05__bandwidth__storecopy.csv"), probe_cols());
+    struct Case { const char* name; int store_mask; uint32_t probe; };
+    const Case cases[] = {{"p1_store_probe_p1", 0x8E, P1}, {"p1_store_probe_p0", 0x8E, P0}, {"p0_store_probe_p1", 0x71, P1},
+                          {"p0_store_probe_p0", 0x71, P0}, {"no_store_probe_p1", 0, P1}};
+    x.run.lock_clocks_note("storecopy", "before");
+    std::vector<uint16_t> cyc;
+    std::vector<uint32_t> val;
+    for (int r = 0; r < reps; ++r)
+        for (const Case& k : cases) {
+            CUDA_CHECK(cudaMemset(x.d_buf, 0xA5, F));
+            x.clean();
+            if (k.store_mask) {
+                Cfg c{k.store_mask == 0x8E ? V_REMOTE : V_LOCAL, OP_ST, 4, F, B2, 1024, false};
+                c.gpc_mask = k.store_mask;
+                c.reps = 1;
+                Prepared p = prepare(x, c);
+                launch(x, c, p, false);
+            }
+            probe_sample(x, s, k.probe, cyc, val);
+            write_probe(x, csv, k.name, F, 0, k.probe, r, s, cyc, val, k.store_mask ? 0u : 0xA5A5A5A5u, lb.thr);
+            std::vector<uint16_t> sc = cyc;
+            std::sort(sc.begin(), sc.end());
+            std::printf("storecopy %-18s rep %d: median %u cycles (thr %.0f)\n", k.name, r, sc[sc.size() / 2], lb.thr);
+        }
+    csv.sync();
+    free_sample(s);
+    x.run.lock_clocks_note("storecopy", "after");
+}
+
+// firstpass mode: the first-pass test (CleanL2 → home touch → pass 1 → pass 2, as in first_pass) in one direction
+// (readers = the GPCs of one partition, gpc mask 0x8E or 0x71), local (lines homed in the readers' partition, near) and
+// remote (homed in the other partition, far), for footprints F ∈ {8, 12, 16, 20, 24, 32, 48} MiB (F/2 = 4 … 24 MiB per
+// direction) and three block configurations: 2 × 1024 threads per SM (128 KiB of loads in flight per SM; the
+// steady-state configuration), 1 × 1024 (64 KiB) and 1 × 512 (32 KiB, the link-mode configuration). The time of one
+// pass is start-up + payload / rate, so the rate is taken from the slope of span over payload where the residency check
+// finds every sampled line in L2 (analysis).
+// Residency: per F and rep, CleanL2 → home touch → one warp on a home-partition SM (first SM of G4 for lines homed in
+// partition 0, of G1 for partition 1) reads 1024 evenly spaced lines of each partition's set once (no copies are made by
+// home-partition reads): near (≈ 270 cycles) = still in L2, ≥ 480 = HBM.
+//   → 05__bandwidth__l2_link.csv / _l2_link_blocks.csv (as link mode) and 05__bandwidth__firstpass_residency.csv.
+static void run_firstpass(Ctx& x, bool quick) {
+    const Labels lb = label_homes(x, false);
+    upload_lists(x, lb);
+    Writers w(true);
+    hb::CsvWriter rcsv(hb::Run::results("05__bandwidth__firstpass_residency.csv"), probe_cols());
+    const int RF = quick ? 3 : 20, RR = quick ? 1 : 3, B2 = 2 * x.sm_count;
+    const std::vector<uint64_t> F = quick ? std::vector<uint64_t>{8, 16} : std::vector<uint64_t>{8, 12, 16, 20, 24, 32, 48};
+    const uint32_t probe_sm[2] = {(uint32_t)first_sm_of_gpc(x.gpc, 4), (uint32_t)first_sm_of_gpc(x.gpc, 1)};
+    x.run.lock_clocks_note("firstpass", "before");
+    std::vector<uint16_t> cyc;
+    std::vector<uint32_t> val;
+    for (uint64_t f : F) {
+        Cfg touch_cfg{V_LOCAL, OP_LD, 4, f * kMiB, B2, 1024, false, 3, 1, 0};
+        Prepared pt = prepare(x, touch_cfg);
+        Sample s[2];
+        for (int h = 0; h < 2; ++h) s[h] = make_sample(x.home_lines[h], lines_in_prefix(x.home_lines[h], (uint32_t)(f * kMiB / kLine)), 1024);
+        for (int r = 0; r < RR; ++r) {
+            x.clean();
+            launch(x, touch_cfg, pt, false);
+            for (int h = 0; h < 2; ++h) {
+                probe_sample(x, s[h], probe_sm[h], cyc, val);
+                write_probe(x, rcsv, "after_touch", f * kMiB, h, probe_sm[h], r, s[h], cyc, val, 0u, lb.thr);
+                uint32_t miss = 0;
+                for (auto c : cyc) miss += c > lb.c_far;  // beyond the far-hit centre: not an L2 hit at home
+                std::printf("residency F %3llu MiB home %d rep %d: %u of %zu sampled lines slower than %.0f cycles\n",
+                            (unsigned long long)f, h, r, miss, cyc.size(), lb.c_far);
+            }
+        }
+        for (auto& v : s) free_sample(v);
+        rcsv.sync();
+        for (int k = 0; k < 3; ++k)  // threads per block, blocks per SM: 1024 × 2, 1024 × 1, 512 × 1
+            for (int m : {0x8E, 0x71})
+                for (int v : {V_LOCAL, V_REMOTE}) {
+                    const bool one = k > 0;
+                    Cfg c{v, OP_LD, 4, f * kMiB, one ? x.sm_count : B2, k == 2 ? 512 : 1024, one};
+                    c.gpc_mask = m;
+                    first_pass(x, w, c, RF);
+                }
+    }
+    x.run.lock_clocks_note("firstpass", "after");
+}
+
+// ncufp mode (application replay, --cache-control none, one pass per L2 counter; see src/run.sh): the firstpass configurations
+// with 2 × 1024 threads per SM, readers = partition 1 (gpc mask 0x8E). Per configuration, in the same session: one
+// k3_ncu launch of the same grid in which every block exits at once (baseline: what the profiler itself adds) →
+// CleanL2 → home touch (k3_stream, not profiled) → pass 1 (k3_ncu) → pass 2 (k3_ncu). Writes bin/ncu_manifest_fp.csv.
+static void run_ncufp(Ctx& x, bool quick) {
+    const Labels lb = label_homes(x, false);
+    upload_lists(x, lb);
+    FILE* man = std::fopen("bin/ncu_manifest_fp.csv", "w");
+    if (!man) hb::die("cannot write bin/ncu_manifest_fp.csv");
+    std::fprintf(man, "%s,variant,op,footprint_bytes,blocks,threads,ilp,pass,reader_gpc_mask,role,bytes,lines,ms_event\n",
+                 hb::join(hb::mandatory_cols()).c_str());
+    const int B2 = 2 * x.sm_count;
+    auto profiled = [&](const Cfg& c, const Prepared& pn, const char* role, uint64_t bytes) {
+        launch(x, c, pn, true);
+        const hb::ClockSample cs = x.run.clock_note(std::string("ncufp_") + role + "_" + cfg_label(c), "launch", x.launch_idx);
+        float ms = 0;
+        CUDA_CHECK(cudaEventElapsedTime(&ms, x.ev0, x.ev1));
+        std::fprintf(man, "%s,%s,%s,%llu,%d,%d,%d,%d,%d,%s,%llu,%llu,%.6f\n", x.run.prefix(x.launch_idx, cs).c_str(), kVariantName[c.variant],
+                     kOpName[c.op], (unsigned long long)c.footprint, c.blocks, c.threads, c.ilp, c.pass, (int)gpcs_of(c), role,
+                     (unsigned long long)bytes, (unsigned long long)(bytes / kLine), ms);
+        ++x.launch_idx;
+    };
+    x.run.lock_clocks_note("ncufp", "before");
+    const std::vector<uint64_t> F = quick ? std::vector<uint64_t>{16} : std::vector<uint64_t>{8, 16, 24, 32, 48};
+    for (uint64_t f : F)
+        for (int v : {V_LOCAL, V_REMOTE}) {
+            Cfg base{v, OP_LD, 4, f * kMiB, B2, 1024, false};
+            base.gpc_mask = 0;  // every block exits at once
+            base.reps = 1;
+            Prepared pb = prepare<true>(x, base);
+            profiled(base, pb, "baseline", 0);
+            Cfg c{v, OP_LD, 4, f * kMiB, B2, 1024, false};
+            c.gpc_mask = 0x8E;
+            c.reps = 1;
+            Prepared pn = prepare<true>(x, c);
+            Cfg touch_cfg{V_LOCAL, OP_LD, 4, c.footprint, B2, 1024, false, 3, 1, 0};
+            Prepared pt = prepare(x, touch_cfg);
+            x.clean();
+            launch(x, touch_cfg, pt, false);
+            Cfg c1 = c, c2 = c;
+            c1.pass = 1;
+            c2.pass = 2;
+            profiled(c1, pn, "pass", pn.bytes_per_rep);
+            profiled(c2, pn, "pass", pn.bytes_per_rep);
+        }
+    std::fclose(man);
+    x.run.lock_clocks_note("ncufp", "after");
+}
+
 static void run_ncu(Ctx& x, bool quick) {
     const Labels lb = label_homes(x, false);
     upload_lists(x, lb);
@@ -890,6 +1120,9 @@ int main(int argc, char** argv) {
         if (mode == "k3") run_k3(x, quick);
         else if (mode == "link") run_link(x, quick);
         else if (mode == "ncu") run_ncu(x, quick);
+        else if (mode == "storecopy") run_storecopy(x, quick);
+        else if (mode == "firstpass") run_firstpass(x, quick);
+        else if (mode == "ncufp") run_ncufp(x, quick);
         else hb::die("unknown mode " + mode);
     }
     run.complete();

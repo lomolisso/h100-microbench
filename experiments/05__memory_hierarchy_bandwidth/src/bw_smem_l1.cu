@@ -28,7 +28,8 @@
  *     single   1 block (on whichever SM the scheduler picks; %smid recorded);
  *     all_sms  132 blocks; the host requires 132 distinct %smid values, otherwise the launch is discarded and repeated.
  *   2 warm-up + 10 recorded (valid) launches per configuration. The slope between iters 4096 and 8192 removes the
- *   fixed cost of the timed region (barriers, timer reads, loop exit).
+ *   fixed cost of the timed region (barriers, timer reads, loop exit): computed in the analysis (common05.k12_slope,
+ *   blocks paired by SM and launch order), not here.
  *   → results/05__bandwidth__smem_l1.csv: level, op, width_bytes, threads, ilp, iters, pattern, placement, block, bytes,
  *     cycles, bpc_per_sm, ns, smid, discard (one row per block and launch; discard = "" | placement | clock; a
  *     discarded launch is kept and repeated). Mandatory columns first; clocks = NVML sample after the launch.
