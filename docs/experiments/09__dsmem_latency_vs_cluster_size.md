@@ -13,7 +13,7 @@ Average dependent-load latency, in SM cycles, of a remote shared-memory access a
 - Each CTA fills its own smem with a chain: `s[i] = (i + 1) mod N` as 32-bit indices over N = 1024 words (stride-1, bank-conflict-free, as [P1]) and additionally a **random cyclic permutation over 16 KB** (defeats any hypothetical remote prefetch/combining).
 - `cluster.sync()`.
 - For `src = 0 … CS-1` (serialised by `cluster.sync()` between sources so only one SM is active at a time): if `rank == src`, for `dst = 0 … CS-1` (including self): `base = mapa(smem_u32(s), dst)`; warm with 64 hops; time 4096 dependent hops with the `01` loop (`ld.shared::cluster.u32 idx, [base + idx*4]` — compute the address with `add`; the chain value is the next index); record `(src, dst, smid_src, smid_dst, cycles_per_hop)`; also record the raw per-hop series for 256 hops (fine-grained variant) to see the distribution.
-- Variants: (a) `ld.shared::cluster.u32` with explicit 32-bit address; (b) generic `ld.u32` on the `map_shared_rank` pointer (what CUDA C++ emits); (c) `ld.volatile.shared::cluster`; (d) `ld.relaxed.cluster.shared::cluster` and `ld.acquire.cluster` (memory-model qualifiers — cost of ordering); (e) 64-bit and 128-bit loads (`.v4.u32`) — latency should not change.
+- Variants: (a) `ld.shared::cluster.u32` with explicit 32-bit address; (b) generic `ld.u32` on the `map_shared_rank` pointer (what CUDA C++ emits); (c) `ld.volatile.shared::cluster`; (d) `ld.relaxed.cluster.shared::cluster` and `ld.acquire.cluster` (memory-model qualifiers — cost of ordering); (e) 64-bit and 128-bit loads (`.v4.u32`) — latency should not change; (f) **loaded per-request latency** (the GPUNetBench `SM2SM/ONE2ONE` latency mode, `docs/research_notes/gpunetbench.md` §2): 1024 threads of the source CTA stream the whole 200 KB remote buffer with 8 independent `ld.shared::cluster.u32` per step (ILP 8, stride 1), `%clock64` around each group of 8 (`read_clock64_after` on the last value), mean per thread and per CTA — a secondary column next to the zero-load chase, comparable with P6's 196–213 cycles.
 - Sweep: CS ∈ {1, 2, 4, 8, 16} (CS 1 = local via DSMEM interface); policy ∈ {Default, Spread, LoadBalancing}; 20 clusters per launch (different SM sets); 5 launches.
 
 ## Kernel K2 — store visibility (2-point, one-way)
@@ -26,6 +26,7 @@ Ranks 0 and 1 only (CS 2…16 but only two ranks active). Rank 1 spins on its ow
 `09__dsmem_latency__chase.csv`: `cs, policy, variant, cluster_id, src_rank, dst_rank, smid_src, smid_dst, gpc_src, gpc_dst, same_sm, cycles_per_hop, launch_idx`.
 `09__dsmem_latency__fine.csv`: `cs, src_rank, dst_rank, smid_src, smid_dst, hop_idx, cycles`.
 `09__dsmem_latency__visibility.csv`: `cs, variant, smid_src, smid_dst, trial, one_way_ns, round_trip_cycles`.
+`09__dsmem_latency__loaded.csv`: `cs, src_rank, dst_rank, smid_src, smid_dst, threads, ilp, cta_mean_cycles_per_group, cta_p5, cta_p95, launch_idx`.
 
 ## Figures
 1. **Histogram** of remote `cycles_per_hop` for each CS (2, 4, 8, 16) overlaid, with dotted vertical lines for local SMEM (K3), L2 near-hit, and DRAM latency (from `04`).

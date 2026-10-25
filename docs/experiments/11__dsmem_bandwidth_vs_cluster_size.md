@@ -23,8 +23,11 @@ Each thread: `ld.shared::cluster.v4.u32` ×ILP (ILP = 4 default) over its slice 
 ### K4 — local pressure control
 Source SM runs additional warps doing local `ld.shared` while K1 runs, to show whether the destination/source SRAM port limits remote bandwidth (blog found no effect).
 
+### K5 — DSMEM vs L2 traffic interference (GPUNetBench `SM2SM/SM2SM+L2` design, `docs/research_notes/gpunetbench.md` §2–3)
+One CS-16 cluster; every rank gets a role: idle, **L2 streamer** (`ld.global.cg.v4` over a 16 MiB L2-resident buffer homed in the GPC's own partition, ILP 1/2/4/8) or **DSMEM streamer** (K1 remote loads to the other DSMEM ranks, ILP 1/2/4/8), with the DSMEM destinations either in the **same CPC** as the source or in **another CPC** (CPC map from `10`; if `10` found none, TPC index mod 3). Both groups start after one `cluster.sync()` and are sized to run for the same time (≈ 20 ms); measure each group alone and both together (L2 ILP fixed at 8 while DSMEM ILP varies, and vice versa); per-CTA `%clock64` bandwidth and the per-request loaded latency. Question: do DSMEM and GPC→L2 traffic share the CPC port / GPC crossbar (bandwidth of one group drops when the other runs) and does the drop depend on the CPC relation?
+
 ### Patterns (parameterised)
-`pair_uni` (0→1), `pair_bi` (0↔1), `ring(+k)` (r → (r+k) mod CS), `packed_pairs` (groups of 2 with stride), `broadcast` (all → 0; and 0 → all for stores/TMA = the software broadcast), `all_to_all` (threads of each CTA split into CS groups, group g targets rank g), `mixed_same_dir` (0 reads 1 while 1 stores into 0 = same physical direction), `mixed_opposite` (0 reads 1 while 0 stores into 1).
+`pair_uni` (0→1), `pair_bi` (0↔1), `ring(+k)` (r → (r+k) mod CS), `packed_pairs` (groups of 2 with stride), `broadcast` (all → 0; and 0 → all for stores/TMA = the software broadcast), `all_to_all` (threads of each CTA split into CS groups, group g targets rank g; `all_to_all_full` = every group reads the peer's whole tile instead of 1/(CS−1)), `randperm` (a fixed random derangement of ranks, new per launch), `uniform_random` (a new random partner for every 16 KB chunk, no self), `mixed_same_dir` (0 reads 1 while 1 stores into 0 = same physical direction), `mixed_opposite` (0 reads 1 while 0 stores into 1). The last three and `all_to_all_full` are the GPUNetBench `SM2SM/ALL2ALL` patterns.
 
 ### Sweeps
 CS ∈ {2, 4, 8, 16}; threads ∈ {128, 256, 512, 1024}; ILP ∈ {1, 2, 4, 8}; policy ∈ {Default, Spread, LoadBalancing}; (a) single cluster on an idle chip (per-SM numbers), (b) full chip: `cudaOccupancyMaxActiveClusters` clusters simultaneously (GPU-wide TB/s), (c) 50 160-block launch as in [P1] for direct comparison.
@@ -38,6 +41,7 @@ CS ∈ {2, 4, 8, 16}; threads ∈ {128, 256, 512, 1024}; ILP ∈ {1, 2, 4, 8}; p
 ## CSV columns
 `11__dsmem_bw__samples.csv`: `kernel, pattern, cs, policy, threads, ilp, chunk_bytes, payload_bytes, cluster_id, rank, smid, peer_smid, sample, cycles, ns, bytes_moved, launch_mode ∈ {single, full, p1_style}`.
 `11__dsmem_bw__fits.csv`: `kernel, pattern, cs, policy, threads, ilp, chunk_bytes, bpc_per_sm, alpha_cycles, rmse_pct, tbps_gpu_wide, active_sms`.
+`11__dsmem_bw__interference.csv`: `role_map, dsmem_dest ∈ {same_cpc, other_cpc}, ilp_l2, ilp_dsmem, group ∈ {l2, dsmem}, alone_or_both, cluster_id, rank, smid, cpc, sample, cycles, bytes_moved, bpc, loaded_latency_cycles`.
 
 ## Figures
 1. **Bar/histogram: aggregate TB/s vs CS** for ring (loads), ring (stores), ring (TMA put), with dotted lines for DRAM TB/s and L2 TB/s from `05`.
@@ -46,10 +50,11 @@ CS ∈ {2, 4, 8, 16}; threads ∈ {128, 256, 512, 1024}; ILP ∈ {1, 2, 4, 8}; p
 4. Broadcast per-reader BW vs number of readers with the 21.2/N curve.
 5. TMA chunk-size curve (128 B → 16 KB) with the implied per-command cost.
 6. Local SMEM bandwidth of the victim SM while being read (K4) vs idle.
+7. Interference (K5): bandwidth of each group alone vs together, same-CPC vs other-CPC destinations, vs ILP.
 
 ## Sanity checks (agent-only)
 Expected ranges for judging plausibility during result analysis. They are never presented as pass/fail and never quoted in the notebook. If a value falls outside, investigate (placement, clocks, SASS, cache state, ncu replay) and re-run. A value that survives is a finding about this device; describe it on its own terms.
 One-way remote load/store/TMA put ∈ [18, 23] B/cycle/SM; ring TMA scales ≥ 0.9× linearly to CS 16; broadcast per-reader ≈ 21/N (±20 %); P1's 3.28 TB/s (CS 2 ring, 114 SMs) reproduced within ±15 % after scaling by SM count and clock.
 
 ## NVIDIA tools
-`ncu --metrics l1tex__m_l1tex2xbar_write_bytes_mem_dshared.sum.per_second,l1tex__m_xbar2l1tex_read_bytes_mem_dshared.sum.per_second,l1tex__m_l1tex2xbar_throughput_pipe_lsu_mem_dshared.avg.pct_of_peak_sustained_elapsed,l1tex__m_xbar2l1tex_throughput_pipe_lsu_mem_dshared.avg.pct_of_peak_sustained_elapsed,sm__sass_inst_executed_op_dshared_tma_st.sum,l1tex__m_xbar2l1tex_read_bytes_mem_dshared_op_tma_st.sum,l1tex__data_pipe_lsu_wavefronts_mem_shared.sum --print-metric-instances values --clock-control none --cache-control none` on each kernel/pattern at CS 8 (per-SM instance values give injection/ejection bytes per SM → directly the asymmetry of broadcast).
+`ncu --metrics l1tex__m_l1tex2xbar_write_bytes_mem_dshared.sum.per_second,l1tex__m_xbar2l1tex_read_bytes_mem_dshared.sum.per_second,l1tex__m_l1tex2xbar_throughput_pipe_lsu_mem_dshared.avg.pct_of_peak_sustained_elapsed,l1tex__m_xbar2l1tex_throughput_pipe_lsu_mem_dshared.avg.pct_of_peak_sustained_elapsed,sm__sass_inst_executed_op_dshared_tma_st.sum,l1tex__m_xbar2l1tex_read_bytes_mem_dshared_op_tma_st.sum,l1tex__data_pipe_lsu_wavefronts_mem_shared.sum,l1tex__m_l1tex2xbar_write_bytes_mem_dshared.max,l1tex__m_l1tex2xbar_write_bytes_mem_dshared.avg,l1tex__m_xbar2l1tex_read_bytes_mem_dshared.max,l1tex__m_xbar2l1tex_read_bytes_mem_dshared.avg --clock-control none --cache-control none` on each kernel/pattern at CS 8. No per-instance values exist on this setup (`07` §8): injection/ejection bytes per SM come from the kernel's own per-CTA accounting (`bytes_moved`), and the `.max/.avg/.min` rollups of the two dshared byte metrics give the asymmetry of broadcast (one receiver ≫ average).

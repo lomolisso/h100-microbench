@@ -4,7 +4,7 @@ Purpose: every number below was measured on real Hopper (or, where marked, other
 
 Rules for using these numbers:
 
-1. Record the GPU variant (H100 SXM5 = 132 SMs, H100 PCIe = 114 SMs, H800 PCIe = 114 SMs, H200 = 132 SMs) and, where known, the SM clock. Cycle counts are comparable across variants; TB/s numbers are not (clock and SM count differ).
+1. Record the GPU variant (H100 SXM5 = 132 SMs, H100 PCIe = 114 SMs incl. P6, H800 PCIe = 114 SMs, H200 = 132 SMs) and, where known, the SM clock. Cycle counts are comparable across variants; TB/s numbers are not (clock and SM count differ).
 2. "Cycles" below are SM clock cycles measured with `clock()`/`clock64()` (per-SM counter) unless stated otherwise.
 3. Papers disagree with each other by 5–15 % on identical quantities (different measurement loops, compilers, clocks). As a plausibility band, a deviation beyond ±10 % for latency or ±15 % for bandwidth (unless an experiment file says otherwise) triggers an investigation of our setup, not a verdict. A deviation that survives investigation is a property of this device.
 4. **None of these numbers come from our device.** We run an H100 NVL (132 SMs, 60 MiB L2, HBM3 3.94 TB/s) with the SM clock locked at 1635 MHz, CUDA 12.9.1 (`10__device_config.md`). Each source's chip and configuration is given in its heading below and side by side with ours in `10__device_config.md` §4. Keep the numbers as intuition for the sanity checks, and apply the comparison rules of `10` §4.
@@ -115,9 +115,31 @@ Rules for using these numbers:
 | TMA peer-copy aggregate scaling 2→16 SMs | near-linear | H200 | — |
 | H100 FA-3 profiling note | SM clock locked to 1.5 GHz for reproducible ncu cycles; ncu flags `--cache-control all --pipeline-boost-state stable` | H100 | — |
 
+## P6 — Jin, Rocca, Kim, Kasan, Rhu, Bakhoda, Aamodt, Kim, "Uncovering Real GPU NoC Characteristics: Implications on Interconnect Architecture", MICRO-57 2024 (DOI 10.1109/MICRO61859.2024.00070). GPUs: V100 (80 SMs, 32 slices), A100 (108 SMs, 80 slices) and **H100 PCIe** (114 SMs, 7 GPCs 18/16/16/16/16/16/16, 1755 MHz max, 50 MB L2, 80 slices, HBM2e 2 TB/s; the paper's Table I lists the SXM spec sheet, the artifact's hard-coded maps are a PCIe card). Code: https://github.com/chrirocca/GPUNetBench (commit 731dd53; digest in `docs/research_notes/gpunetbench.md`). Method: one thread, a single timed `__ldcg` between two `clock()` (not a dependent chain), lines pre-warmed into L2 by the measuring SMs; bandwidth from `cudaEvent`s / `l1tex__m_xbar2l1tex_read_bytes.sum.per_second`; slices identified with `nvprof` per-slice events (V100) or a two-kernel timing-contention oracle (A100/H100; 6 slices mapped on H100). Values marked ≈ are read from figures.
+
+| Quantity | Value | GPU | Where |
+|---|---|---|---|
+| L2 hit latency, one SM → each of the 32 slices | 175–248 cycles, average 212 (Jia et al.: 193) | V100 | Fig. 1a |
+| Per-GPC mean / spread of the SM→slice latency | GPC0 μ 213 σ 13.9; GPC2 μ 209 σ 7.5; up to 71 cycles (33 %) spread inside GPC4 | V100 | Fig. 1b, 2 |
+| Nearest vs farthest SM–slice pair | 180 vs 217 cycles; the sorted slice order is identical for every SM | V100 | Fig. 3–5 |
+| L2 hit latency, near vs far partition | ≈ 212 vs ≈ 400 cycles by GPC | A100 | Fig. 8b |
+| L2 hit latency | **≈ 300–340 cycles, uniform across GPCs (no partition step)** — lines warmed by the measuring SMs, i.e. local copies (`08` on our device) | H100 PCIe | Fig. 8c |
+| L2 miss penalty (memory → L2 part of a miss) | ≈ 230–260 flat (V100/A100); **bimodal by GPC ≈ 250–270 vs ≈ 440–470** (H100) | all | Fig. 8d–f |
+| SM-to-SM (DSMEM) latency by CPC pair, 1024 threads, ILP 8 loaded | **196** (CPC0↔CPC0), ≈ 201 (1,0), ≈ 201 (1,1), ≈ 203 (2,0), ≈ 206 (2,1), **213** (CPC2↔CPC2) | H100 PCIe | Fig. 7b |
+| CPC evidence | Pearson-correlation heatmap: groups of 4–6 SMs (2–3 TPCs) with identical signatures; in their 16-SM GPC, CPC = (TPC index within the GPC) mod 3 | H100 PCIe | Fig. 6c, artifact `SM2SM/SM2SM+L2` |
+| Aggregate L2 fabric vs DRAM bandwidth | ≈ 2.2 vs 0.8 (V100), ≈ 4.8 vs 1.7 (A100), **≈ 7.0 vs 2.0 TB/s (H100 PCIe)**: 2.4–3.5×; DRAM at 85–90 % of peak | all | Fig. 9a |
+| Bandwidth one SM → one slice | 34 GB/s, σ 0.147 over all SM×slice pairs (uniform) | V100 | Fig. 9b |
+| Bandwidth one GPC → one slice | 85 GB/s, σ 0.06; **≥ 4 SMs saturate a slice** | V100 | Fig. 9c |
+| Bandwidth one SM → one slice, near / far partition | 39.5 / 26 GB/s; bimodal 28 / 40 GB/s over SMs | A100 | Fig. 12, 13a |
+| Bandwidth one SM → one slice | single peak **≈ 40–45 GB/s** (local caching) | H100 PCIe | Fig. 13b |
+| Single-slice bandwidth vs number of sending SMs | saturates at ≈ 8 SMs (≈ 200 GB/s); far partition up to 28 % lower at 1–2 SMs | A100 | Fig. 14 |
+| Input speedup, read / write (BW of N SMs ÷ BW of 1) | TPC **1.95 / 2.00**; CPC **5.48 / 4.57**; GPC local **7.75 / 8.97**; GPC global **9.1 / 12.38** (artifact `SPEEDUP/results/H100`); full read bandwidth needs a GPC speedup of 7 / 8 / 9 on V100 / A100 / H100, H100 reaches ≈ 85 %; a CPC needs 6, writes get 4.6 | H100 PCIe | Fig. 10 |
+| Contiguous vs distributed senders | 28 SMs of 2 GPCs → one MP: −62 % vs 28 SMs over 6 GPCs; 14 contiguous SMs → 1…4 MPs: +218 % | V100 | Fig. 15 |
+| Timing-attack sensitivity | RSA square kernel time varies 1.7× across partitions, 12 % within one | A100 | Fig. 17b |
+
 ## Consolidated H100 cheat-sheet (medians across sources)
 
-Medians of the sources above (H800/H100 PCIe, H100 SXM, H200, RTX 5090 where marked), labelled "Expected on H100 SXM5" by those sources. They are not measurements of our H100 NVL at 1635 MHz; see `10__device_config.md` §4.
+Medians of the sources above (H800/H100 PCIe, H100 SXM, H200, RTX 5090 where marked; NoC-level rows from P6, H100 PCIe), labelled "Expected on H100 SXM5" by those sources. They are not measurements of our H100 NVL at 1635 MHz; see `10__device_config.md` §4.
 
 | Metric | Expected on H100 SXM5 | Sources |
 |---|---|---|
@@ -135,4 +157,10 @@ Medians of the sources above (H800/H100 PCIe, H100 SXM, H200, RTX 5090 where mar
 | Local SMEM bandwidth | ≈ 128 B/cycle/SM | P1, P3 |
 | TMA per-SM read bandwidth | 32 B/cycle | P5 |
 | L2 bandwidth (chip) | ≈ 4000–4500 B/cycle ≈ 7–8 TB/s | P1 |
+| L2 fabric aggregate ÷ DRAM bandwidth | 2.4–3.5× | P6 |
+| Bandwidth from one SM to one L2 slice | ≈ 40–45 GB/s (uniform over SMs and slices; A100 far partition 26 vs near 39.5) | P6 |
+| SMs needed to saturate one L2 slice | ≈ 4 (V100) … 8 (A100) | P6 |
+| NoC input speedup, read / write | TPC 1.95 / 2.0; CPC 5.5 / 4.6; GPC 7.75 / 9.0 (local), 9.1 / 12.4 (global) | P6 |
+| SM-to-SM latency step between CPCs | ≈ 17 cycles (196 same CPC → 213) under ILP-8 load | P6 |
+| L2 miss penalty by GPC | bimodal ≈ 250–270 vs ≈ 440–470 cycles | P6 |
 | DRAM bandwidth | ≈ 90 % of 3.35 TB/s ≈ 3.0 TB/s (SXM5) | P1 (PCIe: 1.86 TB/s) |

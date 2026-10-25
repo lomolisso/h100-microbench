@@ -55,9 +55,10 @@ The numbers in `08__prior_work_reference_numbers.md` and in the experiment specs
 | P3 ClusterSim | H100 SXM | 132 | 1620 MHz | 50 MB | HBM3, 3.35 TB/s | CUDA 12.8 |
 | P4 CREDIT | H100 SXM (+ RTX 5090) | 132 | not recorded in 08 | 50 MB | HBM3 | CUDA 13.0 |
 | P5 FlashGPU-sim | RTX 5090 (TMA/mbarrier, 2580 MHz); H200 (DSMEM) | 170 / 132 | 2580 / not recorded in 08 | — / 50 MB | GDDR7 / HBM3e | ncu cycles |
+| P6 Jin et al. (MICRO 2024) | H100 PCIe (Table I lists the SXM spec; the artifact maps a 114-SM PCIe card), also V100/A100 | 114 | 1755 MHz max, not locked | 50 MB, 80 slices | HBM2e, 2 TB/s | nvprof/ncu, `-dlcm=cg` |
 | FA-3 profiling note | H100 | — | locked 1.5 GHz | — | — | — |
 | Cheat-sheet "Expected on H100 SXM5" | H100 SXM5 (medians of the above) | 132 | 1590 base / 1980 boost | 50 MB | 3.35 TB/s | — |
-| **This project** | **H100 NVL** | **132** | **locked 1635 MHz** | **60 MiB** | **HBM3, 3.94 TB/s** | **CUDA 12.9.1** |
+| **This project** | **H100 NVL** | **132** | **locked 1635 MHz** | **60 MiB, 96 slices (94 active)** | **HBM3, 3.94 TB/s** | **CUDA 12.9.1, Nsight Compute 2025.2.1** |
 
 How to compare:
 - **Cycles inside one SM** (SMEM, register, instruction, mbarrier and DSMEM latency): comparable across GH100 variants, with an SM-count caveat for chip-wide numbers.

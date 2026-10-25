@@ -33,6 +33,8 @@ Useful arithmetic: 80 L2 slices / 10 active MCs = 8 slices per 512-bit MC = 16 s
 
 ## 1. Jin, Rocca, Kim, Kasan, Rhu, Bakhoda, Aamodt, Kim — "Uncovering Real GPU NoC Characteristics: Implications on Interconnect Architecture", MICRO 2024
 
+> **Superseded (2026-10-25):** the PDF and the artifact have since been read in full; see `docs/research_notes/gpunetbench.md` (methodology, every number, artifact anatomy, mapping onto our experiments) and `docs/context/08` P6. The "[?] not recoverable" items below are resolved there; the A100/H100 slice map was *not* obtained from per-slice profiler counters but from a timing-contention oracle (footnote 1 of the paper).
+
 - Citation: Z. Jin, C. Rocca, J. Kim, H. Kasan, M. Rhu, A. Bakhoda, T. M. Aamodt, J. Kim. MICRO-57, Austin TX, Nov 2024,
   pp. 885-898. DOI 10.1109/MICRO61859.2024.00070 (acceptance 113/497).
 - URLs: PDF https://people.ece.ubc.ca/aamodt/publications/papers/realgpu-noc.micro2024.pdf ;

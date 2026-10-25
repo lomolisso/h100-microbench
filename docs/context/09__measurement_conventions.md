@@ -36,6 +36,7 @@ Rules:
 - DRAM-resident data: working set ≥ 256 MB with random (shuffled) chain order so that neither L2 nor its prefetch helps; flush L2 between repetitions by streaming a 128 MB scratch buffer (or ncu `--cache-control all`).
 - L1 bypass: use `ld.global.cg` (or `__ldcg`) when L2 is the target; L1-resident: `ld.global.ca` with working set ≤ 128 KB per SM.
 - Disable the persisting-L2 window unless the experiment uses it (`cudaCtxResetPersistingL2Cache` at start).
+- **Copies (`08`):** any read or write of a line from partition P leaves a copy in P that serves every SM of P near until a write from the other partition invalidates it. A near/far distinction is therefore only measurable on the *first* read after a flush of a line last touched from the other partition; warm-up passes from the measuring SM turn every line near. Specs that need far accesses state who touches each line (`08` K1 protocol: `CleanL2`, whole-line write by SM T, probe by SM P).
 
 ## 5. Statistical treatment
 
