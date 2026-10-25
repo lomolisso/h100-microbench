@@ -40,5 +40,8 @@
       "Bash(docker volume prune:*)",
       "Bash(docker builder prune:*)"
     ]
+  },
+  "worktree": {
+    "bgIsolation": "none"
   }
 }
