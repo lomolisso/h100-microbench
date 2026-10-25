@@ -15,9 +15,10 @@ in results/03__sm_gpc_topology__runs.csv as `started` before and `complete` afte
 Columns: mandatory (values of the cosched run, new run_id, launch_idx = -1), then smid, gpc, gpc_size, hosts_cs16
 (the GPC hosted a cluster of 16), tpc_mate_hyp (= smid ^ 1), partition, subnode, notes, cosched_domain,
 cosched_domain_size, max_cs_observed, clock_domain, clockdom_run_id.
-- partition / subnode are not measured here: they are copied per smid from the latest earlier map run that has them
-  filled for every SM (written by the L2 experiment 08), together with its "partition/subnode from …" note; empty
-  if no such run exists.
+- partition / subnode are not measured here: they are copied per smid from the latest earlier map run of the same
+  card (same gpu_uuid in runs.csv as the cosched run) that has them filled for every SM (written by the L2
+  experiment 08), together with its "partition/subnode from …" note; empty if no such run exists (e.g. on a card
+  where 08 has not run: labels of one card are never carried to another).
 - notes: "card serial <S>" (the board's `Serial Number` line of results/…card.txt, not the chassis serial);
   "only in clusters of <= N; GPC from clock domain" only for SMs outside every co-scheduling domain that hosts
   clusters of >= 4 (SMs 124–131 on this card), i.e. the SMs whose GPC comes from the clock domain alone.
@@ -150,14 +151,18 @@ def main():
         m = re.findall(r"^\s*Serial Number\s*:\s*(\S+)", open(R + "card.txt").read(), flags=re.M)  # not "Chassis Serial Number"
         serial = m[-1] if m else ""
 
-    # partition / subnode: copied from the latest earlier map run that has them for every SM
+    # partition / subnode: copied from the latest earlier map run of the same card that has them for every SM
+    reg_hdr = ["run_id", "started_iso", "finished_iso", "status", "gpu_uuid", "cmdline"]
+    runs = pd.read_csv(R + "runs.csv", dtype=str, keep_default_na=False)
+    uuid = runs[runs.run_id == rid_e].gpu_uuid.iloc[0]
+    same_card = set(runs[runs.gpu_uuid == uuid].run_id)
     header = MANDATORY + ["smid", "gpc", "gpc_size", "hosts_cs16", "tpc_mate_hyp", "partition", "subnode", "notes",
                           "cosched_domain", "cosched_domain_size", "max_cs_observed", "clock_domain", "clockdom_run_id"]
     part, sub, part_note, rid_p = {}, {}, "", ""
     if os.path.exists(R + "map.csv"):
         old = pd.read_csv(R + "map.csv", dtype=str, keep_default_na=False)
-        full = [r for r, g in old.groupby("run_id") if (g.partition != "").all() and (g.subnode != "").all()
-                and set(g.smid.astype(int)) == set(range(n))]
+        full = [r for r, g in old.groupby("run_id") if r in same_card and (g.partition != "").all()
+                and (g.subnode != "").all() and set(g.smid.astype(int)) == set(range(n))]
         if full:
             rid_p = max(full)
             g = old[old.run_id == rid_p].set_index(old[old.run_id == rid_p].smid.astype(int))
@@ -168,7 +173,7 @@ def main():
             print(f"partition/subnode copied from map run {rid_p} ({part_note or 'no source note'})"
                   + (f"; WARNING: gpc differs from that run for smid {moved}" if moved else ""))
         else:
-            print("no earlier map run with partition/subnode for every SM: left empty")
+            print(f"no earlier map run of this card ({uuid}) with partition/subnode for every SM: left empty")
 
     first = e.iloc[0]
     rid = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
@@ -184,9 +189,6 @@ def main():
                                                          dom_size[s], max_cs[s], clk[s], rid_c])
 
     # register the map run (started → rows → complete) so an interrupted write shows up as partial
-    reg_hdr = ["run_id", "started_iso", "finished_iso", "status", "gpu_uuid", "cmdline"]
-    runs = pd.read_csv(R + "runs.csv", dtype=str, keep_default_na=False)
-    uuid = runs[runs.run_id == rid_e].gpu_uuid.iloc[0]
     cmd = (f"src/build_map.py (from cosched run {rid_e} and clockdom run {rid_c}"
            + (f"; partition/subnode copied from map run {rid_p}: {part_note})" if rid_p else ")"))
     append_rows(R + "runs.csv", reg_hdr, [[rid, rid, "", "started", uuid, cmd]])

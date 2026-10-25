@@ -55,7 +55,7 @@ tools/run [--no-gpu]            # interactive shell
 ## GPU safety
 
 - Authorized: **GPU 3 (default)** and **GPU 2 (explicit `--gpu 2`)**, pinned in `tools/common.sh` by UUID and PCI id. Every other index is refused.
-- The default switched from GPU 2 to GPU 3 on 2026-10-25 (`DEFAULT_GPU=3` in `tools/common.sh`). Experiments 01–08 and the clock selection ran on GPU 2; the GPU-3 bring-up row in `AGENTS.md` re-checks the card-specific results on GPU 3. The sibling repository `~/work/fa2026/iacoma/h100-dsmem-collectives` runs through this same `tools/run` and shares the cooperative lock, so only one GPU job runs at a time across both repositories.
+- The default switched from GPU 2 to GPU 3 on 2026-10-25 (`DEFAULT_GPU=3` in `tools/common.sh`). Experiments 01–08 and the clock selection ran on GPU 2; the GPU-3 bring-up row in `AGENTS.md` (2026-10-25) re-checked them on GPU 3: same 1635 MHz lock, same SM→GPC map and cluster placement; 08's L2 labels were not re-measured on GPU 3. The sibling repository `~/work/fa2026/iacoma/h100-dsmem-collectives` runs through this same `tools/run` and shares the cooperative lock, so only one GPU job runs at a time across both repositories.
 - `tools/run` (GPU mode) refuses to launch when any of these holds for the target GPU:
   - index, UUID or PCI id don't match the pinned values;
   - any compute process is on it (owner and container are reported);
