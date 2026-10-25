@@ -1,8 +1,10 @@
 /*
  * gpc_map.hpp — reads the smid → GPC map produced by experiment 03 (latest run_id of
  * ../03__sm_gpc_topology/results/03__sm_gpc_topology__map.csv) and picks representative SMs.
- *   load_gpc_map()       gpc[smid] (−1 for an SM missing from the map); exits if the file is missing.
- *   first_sm_of_gpc(m,g) smallest smid of GPC g (03 labels GPCs by their smallest smid, so G g ↔ smid 2g here).
+ *   load_gpc_map()       gpc[smid] for every smid < sm_count; exits (hb::die) if the file is missing, lacks the
+ *                        run_id/smid/gpc columns, or has no GPC for any smid of the device.
+ *   first_sm_of_gpc(m,g) smallest smid whose GPC label in the map is g. Both the GPC labels and their smallest SMs are
+ *                        looked up in the 03 map; no relation between label and smid is assumed.
  */
 #pragma once
 #include <cstdio>

@@ -5,6 +5,8 @@
   read_run(file, run_id)       rows of results/<file> belonging to one run_id (pandas)
   append_rows(path, header, rows)  append-only CSV writer (flock, header on an empty file, checked otherwise, fsync)
   kmeans1d(values, counts, k)  weighted 1-D K-means (sklearn, n_init = 20, seed 0): centres ascending, labels, SD
+  sm_clocks()                  real SM clock of every SM under the 1635 MHz lock, per GPC (03's clock-domain run)
+  at_nominal(cycles, mhz)      SM cycles measured at `mhz` → cycles at the nominal 1635 MHz (= ns × 1.635)
 """
 import csv
 import fcntl
@@ -16,6 +18,8 @@ import pandas as pd
 
 EXP = "04__memory_hierarchy_latency"
 RES = "results"
+NOMINAL_MHZ = 1635.0
+RES03 = "../03__sm_gpc_topology/results"
 MANDATORY = ["gpu_name", "sm_count", "sm_clock_mhz", "mem_clock_mhz", "cuda_version", "driver_version", "run_id", "launch_idx"]
 
 
@@ -78,3 +82,36 @@ def kmeans1d(values, counts=None, k=2):
     sd = np.array([np.sqrt(np.average((x[lab == j, 0] - cen[j]) ** 2, weights=w[lab == j])) for j in range(k)])
     wt = np.array([w[lab == j].sum() for j in range(k)])
     return cen, lab, sd, wt
+
+
+def sm_clocks(res03=RES03):
+    """Real SM clock under the lock, per SM and per GPC, from experiment 03.
+
+    Clock: latest complete `gpc_probe clockdom` run of 03 (results/03__sm_gpc_topology__clock_domains.csv: one row
+    per SM and launch, sm_mhz = span_cycles / span_ns over a 33.5 ms %globaltimer window); per-SM value = median over
+    the launches. GPC: latest run_id of 03's map (03__sm_gpc_topology__map.csv). Per-GPC clock = median of the per-SM
+    medians of the GPC's SMs (they agree to < 0.002 MHz within a GPC).
+    Returns (DataFrame indexed by smid with columns gpc, sm_mhz, gpc_mhz; clockdom run_id; map run_id).
+    """
+    r = pd.read_csv(f"{res03}/03__sm_gpc_topology__runs.csv", dtype=str, keep_default_na=False)
+    done = set(r.loc[r.status == "complete", "run_id"])
+    st = r[(r.status == "started") & r.run_id.isin(done)]
+    toks = st.cmdline.str.split()
+    st = st[toks.map(lambda t: len(t) > 1 and t[0].endswith("/gpc_probe") and t[1] == "clockdom" and "--quick" not in t)]
+    if st.empty:
+        raise SystemExit("no complete clockdom run of experiment 03")
+    rid = st.sort_values("started_iso").run_id.iloc[-1]
+    c = pd.read_csv(f"{res03}/03__sm_gpc_topology__clock_domains.csv")
+    sm = c[c.run_id == rid].groupby("smid").sm_mhz.median()
+    m = pd.read_csv(f"{res03}/03__sm_gpc_topology__map.csv")
+    map_rid = m.run_id.max()
+    gpc = m[m.run_id == map_rid].set_index("smid").gpc.astype(int)
+    out = pd.DataFrame({"gpc": gpc, "sm_mhz": sm}).dropna()
+    out["gpc"] = out.gpc.astype(int)
+    out["gpc_mhz"] = out.gpc.map(out.groupby("gpc").sm_mhz.median())
+    return out, rid, map_rid
+
+
+def at_nominal(cycles, mhz):
+    """SM cycles counted at the real clock `mhz` → cycles at the nominal 1635 MHz: ns = cycles / mhz × 1e3, × 1.635."""
+    return np.asarray(cycles, float) * NOMINAL_MHZ / np.asarray(mhz, float)

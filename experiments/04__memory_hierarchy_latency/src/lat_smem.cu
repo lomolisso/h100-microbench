@@ -2,9 +2,20 @@
  * lat_smem.cu — experiment 04, K1: dependent-load latency of the SM's own shared memory, through the local
  * shared-memory path and through the DSMEM interface addressed at the own CTA.
  *
- * Usage: bin/lat_smem {k1|clockcheck} [--label L]. One invocation = one run_id (results/04__memory_hierarchy_latency__runs.csv).
+ * Usage: bin/lat_smem {k1|clockcheck} [--sm S] [--label L]. One invocation = one run_id
+ * (results/04__memory_hierarchy_latency__runs.csv).
  *
- * Kernel k1_chase<V>(perm, n_words, stride, hops, zero, out): grid 1 block × 32 threads, dynamic smem = n_words × 4 B.
+ * Placement: claim_target_sm (harness.cuh) pins the chase to SM S (--sm, default 2: GPC G1 of the 03 map, a GPC whose
+ *   SMs join clusters of every size; the GPC is looked up in the 03 map and printed). Each launch has
+ *   hb::SmClaim::blocks() = 2 × 132 blocks of 32 threads, each with the configuration's dynamic smem (≤ 192 KiB, so
+ *   at most one block per SM at a time for the largest size; the blocks that do not fit wait for a free SM and exit at
+ *   once). The first block that runs on SM S wins the claim and does all the work below; every other block returns
+ *   before touching shared memory. The host re-launches (≤ kMaxRetries, counted and printed) when no block reached
+ *   SM S, and dies if the winner's %smid ≠ S, so every recorded launch ran on SM S. (Runs before this change used one
+ *   unpinned block, which the scheduler placed on SM 124.)
+ *
+ * Kernel k1_chase<V>(perm, n_words, stride, hops, target, claim, zero, out): winning block of 32 threads,
+ *   dynamic smem = n_words × 4 B.
  *   Chain: word i holds the address of word next(i), next(i) = (i + stride) mod n_words for stride ∈ {1, 32} words
  *   (32 words = every hop hits the same bank), or a random single-cycle permutation of the n_words words
  *   (pchase_chain.hpp, Sattolo, seed kChainSeed) for stride "random". All 32 threads write the chain, then thread 0 times.
@@ -16,20 +27,22 @@
  *                   cluster of 1 (cudaLaunchKernelEx + ClusterDimension {1,1,1}) → SASS generic LD.E through the
  *                   DSMEM interface ("loopback")
  *   Sweep: 3 variants × stride {1, 32, random} × n_words {1024, 8192, 49152} × hops {4096, 16384};
- *   2 warm-up launches + 10 recorded launches per configuration. Latency = slope between the two hop counts
+ *   2 warm-up launches + 10 recorded launches per configuration (all claimed on SM S). Latency = slope between the two hop counts
  *   (removes the fixed timer/loop region, see 01); cycles_per_hop = total_cycles / hops is the raw ratio.
- *   → results/04__latency__smem.csv: variant, stride, n_words, hops, cycles_per_hop, total_cycles, smid
- *     (one row per launch; mandatory columns first, clocks from the NVML sample taken after the launch).
+ *   → results/04__latency__smem.csv: variant, stride, n_words, hops, cycles_per_hop, total_cycles, smid (= S)
+ *     (one row per launch; mandatory columns first, clocks from the NVML sample taken after the launch; the CSV header
+ *     is unchanged, re-launches are printed to stdout/the run log only).
  */
 #include <string>
 #include <vector>
 
+#include "gpc_map.hpp"
 #include "harness.cuh"
 #include "host.hpp"
 #include "pchase_chain.hpp"
 
 static const char* EXP = "04__memory_hierarchy_latency";
-static constexpr int kWarmups = 2, kRecorded = 10, kUnroll = 16;
+static constexpr int kWarmups = 2, kRecorded = 10, kUnroll = 16, kMaxRetries = 20;
 
 enum Variant { V_LDS = 0, V_LDS_VOL = 1, V_DSMEM = 2 };
 static const char* kVariantName[] = {"lds", "lds_volatile", "dsmem_if"};
@@ -46,8 +59,10 @@ __device__ __forceinline__ uint32_t load_step(uint32_t p) {
 }
 
 template <int V>
-__global__ void __launch_bounds__(32) k1_chase(const uint32_t* perm, int n_words, int stride, int hops, uint64_t zero, K1Out* out) {
+__global__ void __launch_bounds__(32) k1_chase(const uint32_t* perm, int n_words, int stride, int hops, uint32_t target, uint32_t* claim,
+                                              uint64_t zero, K1Out* out) {
     extern __shared__ uint32_t s[];
+    if (!claim_target_sm(target, claim)) return;  // all 32 lanes call it (shfl); losers exit before any smem access
     const uint32_t rank = (V == V_DSMEM) ? read_cluster_regs().ctarank : 0;
     for (int i = threadIdx.x; i < n_words; i += blockDim.x) {
         const int nx = perm ? (int)perm[i] : (i + stride) % n_words;
@@ -71,10 +86,23 @@ __global__ void __launch_bounds__(32) k1_chase(const uint32_t* perm, int n_words
     out->smid = read_smid();
 }
 
+// One claimed launch on SM `target`; returns the number of re-launches needed (dies after kMaxRetries).
+template <class L>
+static int claimed(L launch, hb::SmClaim& claim, uint32_t target) {
+    for (int r = 0; r <= kMaxRetries; ++r) {
+        claim.reset();
+        launch();
+        CUDA_CHECK(cudaGetLastError());
+        CUDA_CHECK(cudaDeviceSynchronize());
+        if (claim.ok(target)) return r;
+    }
+    hb::die("no block ran on SM " + std::to_string(target) + " after retries");
+}
+
 template <int V>
-static void run_variant(hb::Run& run, hb::CsvWriter& csv, K1Out* d_out, long long& launch_idx) {
+static void run_variant(hb::Run& run, hb::CsvWriter& csv, K1Out* d_out, hb::SmClaim& claim, uint32_t target, long long& launch_idx) {
     hb::ClusterLaunch cl;
-    cl.grid = dim3(1);
+    cl.grid = dim3(hb::SmClaim::blocks(run.dev().sm_count));
     cl.block = dim3(32);
     cl.explicit_cluster = (V == V_DSMEM);  // a cluster of 1: needed for the shared::cluster window
     for (int n : {1024, 8192, 49152}) {
@@ -89,16 +117,18 @@ static void run_variant(hb::Run& run, hb::CsvWriter& csv, K1Out* d_out, long lon
             for (int hops : {4096, 16384}) {
                 const std::string label = std::string("k1_") + kVariantName[V] + "_s" + sname + "_n" + std::to_string(n) + "_h" + std::to_string(hops);
                 auto launch = [&] {
-                    CUDA_CHECK(cl.launch(k1_chase<V>, stride ? nullptr : (const uint32_t*)d_perm, n, stride, hops, (uint64_t)0, d_out));
+                    CUDA_CHECK(cl.launch(k1_chase<V>, stride ? nullptr : (const uint32_t*)d_perm, n, stride, hops, target,
+                                         claim.ptr(), (uint64_t)0, d_out));
                 };
-                hb::warmup(launch, kWarmups);
+                int retries = 0;
+                for (int w = 0; w < kWarmups; ++w) retries += claimed(launch, claim, target);
                 double last = 0;
                 for (int l = 0; l < kRecorded; ++l) {
-                    launch();
-                    CUDA_CHECK(cudaDeviceSynchronize());
+                    retries += claimed(launch, claim, target);
                     const hb::ClockSample cs = run.clock_note(label, "launch", launch_idx);
                     K1Out o;
                     CUDA_CHECK(cudaMemcpy(&o, d_out, sizeof o, cudaMemcpyDeviceToHost));
+                    if (o.smid != target) hb::die("claimed block reported smid " + std::to_string(o.smid));
                     last = double(o.cycles) / hops;
                     char b[512];
                     std::snprintf(b, sizeof b, "%s,%s,%s,%d,%d,%.4f,%llu,%u", run.prefix(launch_idx, cs).c_str(), kVariantName[V],
@@ -107,7 +137,8 @@ static void run_variant(hb::Run& run, hb::CsvWriter& csv, K1Out* d_out, long lon
                     csv.flush();
                     ++launch_idx;
                 }
-                std::printf("k1 %-12s stride %-6s n %5d hops %5d: %.3f cycles/hop\n", kVariantName[V], sname.c_str(), n, hops, last);
+                std::printf("k1 %-12s stride %-6s n %5d hops %5d sm %u: %.3f cycles/hop, re-launches %d\n", kVariantName[V],
+                            sname.c_str(), n, hops, target, last, retries);
             }
             csv.sync();
         }
@@ -124,13 +155,19 @@ int main(int argc, char** argv) {
     } else if (mode == "k1") {
         hb::CsvWriter csv(hb::Run::results("04__latency__smem.csv"),
                           hb::with_mandatory({"variant", "stride", "n_words", "hops", "cycles_per_hop", "total_cycles", "smid"}));
+        const int sm_count = run.dev().sm_count;
+        const uint32_t target = (uint32_t)hb::arg_int(argc, argv, "--sm", 2);
+        if ((int)target >= sm_count) hb::die("--sm out of range");
+        const std::vector<int> gpc = load_gpc_map(sm_count);
+        std::printf("k1: chase pinned to SM %u (GPC G%d in the 03 map)\n", target, gpc[target]);
+        hb::SmClaim claim;
         K1Out* d_out = nullptr;
         CUDA_CHECK(cudaMalloc(&d_out, sizeof(K1Out)));
         long long launch_idx = 0;
         run.lock_clocks_note("k1", "before");
-        run_variant<V_LDS>(run, csv, d_out, launch_idx);
-        run_variant<V_LDS_VOL>(run, csv, d_out, launch_idx);
-        run_variant<V_DSMEM>(run, csv, d_out, launch_idx);
+        run_variant<V_LDS>(run, csv, d_out, claim, target, launch_idx);
+        run_variant<V_LDS_VOL>(run, csv, d_out, claim, target, launch_idx);
+        run_variant<V_DSMEM>(run, csv, d_out, claim, target, launch_idx);
         run.lock_clocks_note("k1", "after");
         CUDA_CHECK(cudaFree(d_out));
     } else {
