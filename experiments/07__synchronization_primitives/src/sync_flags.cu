@@ -46,6 +46,9 @@
  *   k4_gmem_flag          gmem_flag_release_acquire       st.release.gpu / ld.acquire.gpu spin on global flags; rank q's flag at
  *                                                         base + off, rank p's at base + off + 128, variants off0 / off4096 (base 8-KiB aligned: the
  *                                                         two 4-KiB pages have opposite L2 home partitions); flags reset per launch.
+ *   k4_gmem_flag1         gmem_flag1_release_acquire      the same on ONE global word written by both ranks (base + off): rank q
+ *                                                         stores 2e − 1 and spins until it reads 2e, rank p spins until 2e − 1
+ *                                                         and stores 2e (variants off0 / off4096, same home label).
  *                         Home label (modes k4 and k4cs16, every global-flag measurement point, after the flag buffer is
  *                         allocated and before the warm-up launches): L2 flush (hb::L2Flusher, 128 MB read-modify-write);
  *                         a claimed one-warp block on SM kHomeWriterSm = 0 (partition 0 in the 03 map) writes both flag lines
@@ -86,7 +89,7 @@ static const char* EXP = "07__synchronization_primitives";
 constexpr uint32_t kSpinCap = 1u << 26;
 
 enum K4M { M_ST_LD_VOL, M_PULL_VOL, M_REL_ACQ, M_RLX_FENCE, M_RED_REL, M_ATOM_EXCH, M_ST_ASYNC, M_RED_ASYNC,
-           M_ARRIVE_REL, M_ARRIVE_RLX, M_GMEM, M_CSYNC };
+           M_ARRIVE_REL, M_ARRIVE_RLX, M_GMEM, M_CSYNC, M_GMEM1 };
 
 // Local forms not in the harness.
 __device__ __forceinline__ void st_volatile_cta_u32(uint32_t a, uint32_t v) {
@@ -101,6 +104,7 @@ struct K4Addr {
     uint32_t own_data_cta, peer_data;
     uint32_t own_bar, peer_bar;     // own: .shared::cta; peer: .shared::cluster
     uint32_t *gown, *gpeer;         // global flags
+    uint32_t grole;                 // 0 rank q, 1 rank p (M_GMEM1: values 2e−1 from q, 2e from p on one word)
 };
 
 template <int M> constexpr bool kHasData = (M == M_ST_ASYNC || M == M_RED_ASYNC);
@@ -119,6 +123,7 @@ __device__ __forceinline__ void k4_signal(const K4Addr& a, uint32_t e) {
     else if constexpr (M == M_ARRIVE_REL) mbar_remote_arrive(a.peer_bar);
     else if constexpr (M == M_ARRIVE_RLX) mbar_remote_arrive_relaxed(a.peer_bar);
     else if constexpr (M == M_GMEM) st_release_gpu_u32(a.gpeer, e);
+    else if constexpr (M == M_GMEM1) st_release_gpu_u32(a.gpeer, 2 * e - 1 + a.grole);
 }
 
 // Returns false on a timeout (kSpinCap polls). `v` = the data word (st.async / red.async), else e.
@@ -140,6 +145,7 @@ __device__ __forceinline__ bool k4_wait(const K4Addr& a, uint32_t e, uint32_t i,
             else if constexpr (M == M_PULL_VOL) x = ld_volatile_cluster_u32(a.peer_flag);
             else if constexpr (M == M_RLX_FENCE) x = ld_relaxed_cluster_u32(a.own_flag);
             else if constexpr (M == M_GMEM) x = ld_acquire_gpu_u32(a.gown);
+            else if constexpr (M == M_GMEM1) x = ld_acquire_gpu_u32(a.gown) == 2 * e - a.grole ? e : 0u;  // the peer's value
             else x = ld_acquire_cluster_u32(a.own_flag);  // release_acquire, red_release, atom_exch
             if (x == e) {
                 if constexpr (M == M_RLX_FENCE) fence_acq_rel_cluster();
@@ -177,8 +183,9 @@ __device__ __forceinline__ void k4_body(uint32_t reps, uint32_t zero, uint32_t q
     a.peer_data = mapa_u32(a.own_data_cta, peer);
     a.own_bar = smem_u32(&s_bar);
     a.peer_bar = mapa_u32(a.own_bar, peer);
-    a.gown = gflag + 32 * role;  // 128 B apart, both in the same 4-KiB page
-    a.gpeer = gflag + 32 * (role ^ 1u);
+    a.gown = M == M_GMEM1 ? gflag : gflag + 32 * role;  // M_GMEM: 128 B apart, same 4-KiB page; M_GMEM1: one word
+    a.gpeer = M == M_GMEM1 ? gflag : gflag + 32 * (role ^ 1u);
+    a.grole = role & 1u;
     if (lane == 0) {
         dyn[0] = 0;
         s_flag = 0;
@@ -269,6 +276,7 @@ K4_KERNEL(k4_arrive_release, M_ARRIVE_REL)
 K4_KERNEL(k4_arrive_relaxed, M_ARRIVE_RLX)
 K4_KERNEL(k4_gmem_flag, M_GMEM)
 K4_KERNEL(k4_cluster_sync, M_CSYNC)
+K4_KERNEL(k4_gmem_flag1, M_GMEM1)
 
 // Placement probe of mode k4cs16 (same launch configuration as the K4 kernels): info[rank] = smid.
 __global__ void __launch_bounds__(32) k4_place(uint32_t* info) {
@@ -319,6 +327,8 @@ static const K4Case kCases[] = {
     {k4_arrive_relaxed, "k4_arrive_relaxed", "remote_mbarrier_arrive_relaxed", "push", 0, 1},
     {k4_gmem_flag, "k4_gmem_flag", "gmem_flag_release_acquire", "off0", 0, 1},
     {k4_gmem_flag, "k4_gmem_flag", "gmem_flag_release_acquire", "off4096", 4096, 1},
+    {k4_gmem_flag1, "k4_gmem_flag1", "gmem_flag1_release_acquire", "off0", 0, 1},
+    {k4_gmem_flag1, "k4_gmem_flag1", "gmem_flag1_release_acquire", "off4096", 4096, 1},
     {k4_cluster_sync, "k4_cluster_sync", "cluster_sync", "push", 0, 32},
 };
 
@@ -443,7 +453,7 @@ static void k4_point(Out07& o, const K4Case& c, const K4Pair& q, uint32_t reps, 
     std::vector<uint32_t> info;
     const int disc0 = o.discarded;
     // Global flag: label the home partition of the flag lines of this buffer before any launch of this point.
-    const std::string home = c.k == k4_gmem_flag ? "_home" + label_home(o.run, b.gflag.d + c.goff / 4) : "";
+    const std::string home = c.k == k4_gmem_flag || c.k == k4_gmem_flag1 ? "_home" + label_home(o.run, b.gflag.d + c.goff / 4) : "";
     for (int w = 0; w < kWarmups; ++w) k4_launch(c, q, reps, b, info);
     const std::string variant = pair_variant(c, q) + home;
     const std::string label = std::string("k4_") + c.primitive + "_" + variant + "_cs" + std::to_string(q.cs);

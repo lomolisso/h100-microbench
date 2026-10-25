@@ -159,7 +159,8 @@ def sm_map(path=MAP03):
 
 
 def k4_method(p, part=None):
-    """Method label of K4 propagation rows: the primitive; for the global flag also the flag page ("off0" / "off4096")
+    """Method label of K4 propagation rows: the primitive; for the global flags (gmem_flag_release_acquire: two lines,
+    one per direction; gmem_flag1_release_acquire: one word written by both ranks) also the flag page ("off0" / "off4096")
     or, for runs that labelled the flag line's home in-run (variant suffix _home<h>), where the home lies relative to
     the pair: "home in pair's partition", "home in other partition", "pair across partitions" or "home unresolved".
     part: smid → L2 partition (sm_map().partition); needed for labelled runs."""
@@ -173,7 +174,7 @@ def k4_method(p, part=None):
         rel = np.where(ps != pd_, "pair across partitions", np.where(h.isna(), "home unresolved",
                        np.where(h == ps, "home in pair's partition", "home in other partition")))
         lab = pd.Series(np.where(home.notna(), " (" + pd.Series(rel, index=p.index) + ")", lab), index=p.index)
-    return pd.Series(np.where(prim == "gmem_flag_release_acquire", prim + lab, prim), index=p.index)
+    return pd.Series(np.where(prim.str.startswith("gmem_flag"), prim + lab, prim), index=p.index)
 
 
 # ---------------------------------------------------------------- timed windows in the profiled SASS (stall attribution)
