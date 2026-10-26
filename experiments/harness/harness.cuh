@@ -8,7 +8,7 @@
  *                        read_clock64_after, read_timers_after, TIMED_REGION_BEGIN/END,
  *                        read_smid, read_nsmid, read_laneid, read_cluster_regs, claim_target_sm
  *   cluster / DSMEM      smem_u32, mapa_u32, cluster_arrive{,_release,_relaxed}, cluster_wait{,_acquire},
- *                        cluster_sync, ld_dsmem_u32, st_dsmem_u32
+ *                        cluster_sync, ld_dsmem_u32, st_dsmem_u32, ld_dsmem_u64, ld_dsmem_v4_u32
  *   mbarrier             mbar_init, mbar_inval, fence_mbarrier_init, mbar_arrive, mbar_arrive_expect_tx,
  *                        mbar_remote_arrive, mbar_try_wait_parity{,_acq_cluster}, mbar_wait_parity{,_acq_cluster},
  *                        mbar_try_wait_parity_hint (suspendTimeHint), mbar_test_wait_parity (non-blocking)
@@ -115,6 +115,14 @@ __device__ __forceinline__ uint32_t ld_dsmem_u32(uint32_t a) {
     uint32_t v; asm volatile("ld.shared::cluster.u32 %0, [%1];" : "=r"(v) : "r"(a) : "memory"); return v; }
 __device__ __forceinline__ void st_dsmem_u32(uint32_t a, uint32_t v) {
     asm volatile("st.shared::cluster.u32 [%0], %1;" :: "r"(a), "r"(v) : "memory"); }
+// Wide DSMEM loads (experiment 09): 8 B and 16 B from a .shared::cluster address (8-/16-B aligned).
+__device__ __forceinline__ uint64_t ld_dsmem_u64(uint32_t a) {
+    uint64_t v; asm volatile("ld.shared::cluster.u64 %0, [%1];" : "=l"(v) : "r"(a) : "memory"); return v; }
+__device__ __forceinline__ uint4 ld_dsmem_v4_u32(uint32_t a) {
+    uint4 v;
+    asm volatile("ld.shared::cluster.v4.u32 {%0, %1, %2, %3}, [%4];" : "=r"(v.x), "=r"(v.y), "=r"(v.z), "=r"(v.w) : "r"(a) : "memory");
+    return v;
+}
 
 // ---------------------------------------------------------------- mbarrier (64-bit object in .shared::cta)
 __device__ __forceinline__ void mbar_init(uint32_t bar, uint32_t count) {
