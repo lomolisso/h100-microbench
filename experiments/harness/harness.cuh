@@ -24,6 +24,7 @@
  *                        mbar_remote_arrive_relaxed, st_async_u32, red_async_add_u32 (mbarrier complete_tx in the
  *                        destination CTA), DSMEM flags {ld,st}_{volatile,relaxed,acquire/release}_cluster_u32,
  *                        red_release_cluster_add_u32, atom_exch_acq_rel_cluster_u32
+ *   bandwidth (11)       ld_shared_v4_u32, st_dsmem_v4_u32, st_async_v4_b32, bulk_red_s2s_add_u32
  *
  * Timed-region rule: the end timestamp must not be taken before the last measured load has returned.
  * read_*_after(dep, zero) first consumes `dep` (the last loaded value) in an AND with a runtime zero
@@ -295,3 +296,22 @@ __device__ __forceinline__ void red_release_cluster_add_u32(uint32_t a, uint32_t
     asm volatile("red.release.cluster.shared::cluster.add.u32 [%0], %1;" :: "r"(a), "r"(v) : "memory"); }
 __device__ __forceinline__ uint32_t atom_exch_acq_rel_cluster_u32(uint32_t a, uint32_t v) {
     uint32_t o; asm volatile("atom.acq_rel.cluster.shared::cluster.exch.b32 %0, [%1], %2;" : "=r"(o) : "r"(a), "r"(v) : "memory"); return o; }
+
+// ---------------------------------------------------------------- 16-B streams (experiment 11)
+// Local 16-B shared load (.shared::cta address). ptxas may hoist loop-invariant shared loads: vary the address per pass.
+__device__ __forceinline__ uint4 ld_shared_v4_u32(uint32_t a) {
+    uint4 v;
+    asm volatile("ld.shared.v4.u32 {%0, %1, %2, %3}, [%4];" : "=r"(v.x), "=r"(v.y), "=r"(v.z), "=r"(v.w) : "r"(a) : "memory");
+    return v;
+}
+// 16-B store into a peer's smem (.shared::cluster address, 16-B aligned).
+__device__ __forceinline__ void st_dsmem_v4_u32(uint32_t a, uint4 v) {
+    asm volatile("st.shared::cluster.v4.u32 [%0], {%1, %2, %3, %4};" :: "r"(a), "r"(v.x), "r"(v.y), "r"(v.z), "r"(v.w) : "memory"); }
+// 16-B st.async with complete_tx(16 B) on the peer's mbarrier (a, rbar: .shared::cluster addresses of one peer).
+__device__ __forceinline__ void st_async_v4_b32(uint32_t a, uint4 v, uint32_t rbar) {
+    asm volatile("st.async.shared::cluster.mbarrier::complete_tx::bytes.v4.b32 [%0], {%1, %2, %3, %4}, [%5];"
+                 :: "r"(a), "r"(v.x), "r"(v.y), "r"(v.z), "r"(v.w), "r"(rbar) : "memory"); }
+// Bulk reduce-put (add.u32 element-wise) from own smem into a peer's smem; completion as bulk_s2s_dsmem.
+__device__ __forceinline__ void bulk_red_s2s_add_u32(uint32_t dst, uint32_t src, uint32_t bytes, uint32_t rbar) {
+    asm volatile("cp.reduce.async.bulk.shared::cluster.shared::cta.mbarrier::complete_tx::bytes.add.u32 [%0], [%1], %2, [%3];"
+                 :: "r"(dst), "r"(src), "r"(bytes), "r"(rbar) : "memory"); }
