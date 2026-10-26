@@ -13,6 +13,8 @@
 # held for the whole run → container that can only see the selected GPU, verified inside it.
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+# Derived images (e.g. h100-dsmem-collectives/roofline) select themselves here; tools/env never reads it.
+IMAGE=${H100MB_IMAGE:-$IMAGE}
 
 gpu=$DEFAULT_GPU; use_gpu=1; profile=0; lock_mhz=""
 while [[ $# -gt 0 ]]; do
