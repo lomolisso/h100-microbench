@@ -25,3 +25,6 @@ experiments/*/results/*
 !experiments/*/results/sass/*.sass
 !experiments/*/results/sass/.gitkeep
 !experiments/*/results/.gitkeep
+
+# cross-experiment report: local reductions of raw data and figure previews (never committed)
+reports/cache/

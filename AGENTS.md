@@ -98,6 +98,7 @@ experiments/                   ← IMPLEMENTATIONS, one directory per spec, same
   16__async_proxy_paths_bandwidth/
   17__dsmem_collectives/
   18__access_type_summary/     (roll-up notebook only, no kernels)
+reports/                       ← cross-experiment progress report: h100_characterization.ipynb (executed; built by build_report.py from h100char/*.py; reads local results of 01–12 and of h100-dsmem-collectives; cache/ is local only)
 ```
 Every `experiments/<NN__name>/` contains: `Makefile` (sets `EXP`, `BINS`, includes `../harness/Makefile.inc`, defines `run`), `src/*.cu` + runner scripts, `results/*.csv`, `results/sass/*.sass`, and `<NN__name>.ipynb` (executed, figures embedded). SASS dumps, the executed notebook and `<NN__name>__results_summary.txt` are committed. The summary is the notebook as plain text plus the latest derived tables (summary CSVs, per-SM maps), written by `tools/export_results_summary.py` for readers that see the repo only through git. Raw data (`results/*.csv`, logs, ncu/nsys exports), binaries and `.ncu-rep`/`.nsys-rep` files are not: raw data stays in the main checkout on this machine (rules in `docs/context/09` §6).
 
