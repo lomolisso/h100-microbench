@@ -25,6 +25,9 @@
  *                        destination CTA), DSMEM flags {ld,st}_{volatile,relaxed,acquire/release}_cluster_u32,
  *                        red_release_cluster_add_u32, atom_exch_acq_rel_cluster_u32
  *   bandwidth (11)       ld_shared_v4_u32, st_dsmem_v4_u32, st_async_v4_b32, bulk_red_s2s_add_u32
+ *   atomics (12)         red_async_{min_u32,inc_u32,add_u64}, st_async_{b64,v2_b32}, st_dsmem_{u8,u16,u64,v2_u32},
+ *                        ld_volatile_shared_u32, red_release_gpu_add_u32, atom_exch_acq_rel_gpu_u32; every atom/red
+ *                        op × space × semantics as templates in atomics.cuh
  *
  * Timed-region rule: the end timestamp must not be taken before the last measured load has returned.
  * read_*_after(dep, zero) first consumes `dep` (the last loaded value) in an AND with a runtime zero
@@ -315,3 +318,38 @@ __device__ __forceinline__ void st_async_v4_b32(uint32_t a, uint4 v, uint32_t rb
 __device__ __forceinline__ void bulk_red_s2s_add_u32(uint32_t dst, uint32_t src, uint32_t bytes, uint32_t rbar) {
     asm volatile("cp.reduce.async.bulk.shared::cluster.shared::cta.mbarrier::complete_tx::bytes.add.u32 [%0], [%1], %2, [%3];"
                  :: "r"(dst), "r"(src), "r"(bytes), "r"(rbar) : "memory"); }
+
+// ---------------------------------------------------------------- DSMEM async stores, reductions and widths (experiment 12)
+// (global/shared atom and red for every op × space × semantics: atomics.cuh)
+// red.async (remote CTA only) with complete_tx(operand bytes) on the destination CTA's mbarrier; a, rbar: .shared::cluster.
+__device__ __forceinline__ void red_async_min_u32(uint32_t a, uint32_t v, uint32_t rbar) {
+    asm volatile("red.async.relaxed.cluster.shared::cluster.mbarrier::complete_tx::bytes.min.u32 [%0], %1, [%2];"
+                 :: "r"(a), "r"(v), "r"(rbar) : "memory"); }
+__device__ __forceinline__ void red_async_inc_u32(uint32_t a, uint32_t v, uint32_t rbar) {
+    asm volatile("red.async.relaxed.cluster.shared::cluster.mbarrier::complete_tx::bytes.inc.u32 [%0], %1, [%2];"
+                 :: "r"(a), "r"(v), "r"(rbar) : "memory"); }
+__device__ __forceinline__ void red_async_add_u64(uint32_t a, uint64_t v, uint32_t rbar) {
+    asm volatile("red.async.relaxed.cluster.shared::cluster.mbarrier::complete_tx::bytes.add.u64 [%0], %1, [%2];"
+                 :: "r"(a), "l"(v), "r"(rbar) : "memory"); }
+__device__ __forceinline__ void st_async_b64(uint32_t a, uint64_t v, uint32_t rbar) {
+    asm volatile("st.async.shared::cluster.mbarrier::complete_tx::bytes.b64 [%0], %1, [%2];" :: "r"(a), "l"(v), "r"(rbar) : "memory"); }
+__device__ __forceinline__ void st_async_v2_b32(uint32_t a, uint32_t x, uint32_t y, uint32_t rbar) {
+    asm volatile("st.async.shared::cluster.mbarrier::complete_tx::bytes.v2.b32 [%0], {%1, %2}, [%3];"
+                 :: "r"(a), "r"(x), "r"(y), "r"(rbar) : "memory"); }
+// Remote stores of every width (K7 width independence; .shared::cluster addresses).
+__device__ __forceinline__ void st_dsmem_u8(uint32_t a, uint16_t v) {
+    asm volatile("st.shared::cluster.u8 [%0], %1;" :: "r"(a), "h"(v) : "memory"); }
+__device__ __forceinline__ void st_dsmem_u16(uint32_t a, uint16_t v) {
+    asm volatile("st.shared::cluster.u16 [%0], %1;" :: "r"(a), "h"(v) : "memory"); }
+__device__ __forceinline__ void st_dsmem_u64(uint32_t a, uint64_t v) {
+    asm volatile("st.shared::cluster.u64 [%0], %1;" :: "r"(a), "l"(v) : "memory"); }
+__device__ __forceinline__ void st_dsmem_v2_u32(uint32_t a, uint32_t x, uint32_t y) {
+    asm volatile("st.shared::cluster.v2.u32 [%0], {%1, %2};" :: "r"(a), "r"(x), "r"(y) : "memory"); }
+// Local volatile shared load (polling a flag that a peer writes through DSMEM); .shared::cta address.
+__device__ __forceinline__ uint32_t ld_volatile_shared_u32(uint32_t a) {
+    uint32_t v; asm volatile("ld.volatile.shared.u32 %0, [%1];" : "=r"(v) : "r"(a) : "memory"); return v; }
+// Global flag signals at .gpu scope (release reduction, acq_rel exchange that returns the old value).
+__device__ __forceinline__ void red_release_gpu_add_u32(uint32_t* a, uint32_t v) {
+    asm volatile("red.release.gpu.global.add.u32 [%0], %1;" :: "l"(a), "r"(v) : "memory"); }
+__device__ __forceinline__ uint32_t atom_exch_acq_rel_gpu_u32(uint32_t* a, uint32_t v) {
+    uint32_t o; asm volatile("atom.acq_rel.gpu.global.exch.b32 %0, [%1], %2;" : "=r"(o) : "l"(a), "r"(v) : "memory"); return o; }
