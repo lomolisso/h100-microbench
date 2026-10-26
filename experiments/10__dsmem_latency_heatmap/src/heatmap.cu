@@ -56,6 +56,10 @@
  *      K1, K1f, K2 ×4.
  *   D8 idle/light/heavy, CS 8: G1 and G6, TPC-index subsets {0–3}, {4–7}, {0,2,4,6}, {1,3,5,7} × 5. K1, K1f, K2 ×4.
  *   E  none (no placeholders): lone CS-16 × 20 and lone CS-8 × 20. K1.
+ *   E2 none (no placeholders): lone CS-2 × 10 and lone CS-16 × 10. K2 ×4 (visibility without resident placeholders).
+ *   K  clock check, idle/light/heavy interleaved × 5: CS 16 on G1, G4 and G6 (one TPC left out), CS 8 on TPC indices 0–3
+ *      of G1 and G6; kernels k_clk, K1, k_clk. k_clk: every CTA's lane 0 measures its SM's real clock as Δ%clock64 /
+ *      Δ%globaltimer over 20 ms (spinning on back-to-back timer pairs).
  *   --quick: a few sessions per schedule, K2 with 64 trials.
  *
  * Results (append; mandatory columns first; per-launch rows flushed per launch, pooled rows written and fsynced at the
@@ -78,6 +82,8 @@
  *   10__heatmap__sessions.csv   one row per session: schedule, load_condition, session, cs, target_gpc, subset,
  *       target_smids, placeholders_kept, outcome (ok / unplaceable / failed), n_launches, n_discarded, smids_used
  *   10__heatmap__discards.csv   one row per discarded launch: schedule, session, label, reason
+ *   10__heatmap__clock_check.csv  k_clk (schedule K), one row per CTA: …, when (before / after K1), rank, smid, gpc, d_cycles,
+ *       d_ns, sm_mhz_measured
  *
  * ncu mode (profiled by src/run.sh, no placeholders: ncu serialises kernels): k1_chase as a lone CS-16 cluster and a lone
  *   CS-8 cluster, each with the chase and as an all-exit baseline; manifest bin/ncu_manifest_k1.csv.
@@ -308,13 +314,36 @@ __global__ void __launch_bounds__(32) k2_all(uint32_t reps, uint32_t zero, uint3
     cluster_sync();
 }
 
+// ---------------------------------------------------------------- clock check (schedule K)
+// Each CTA's lane 0 reads (%clock64, %globaltimer) back to back, spins on the pair until span_ns of global time have
+// passed, reads again: the SM's real clock = Δcycles / Δns over ≈ 20 ms (32-ns timer tick → ≈ 2·10⁻⁶ resolution).
+__global__ void __launch_bounds__(32) k_clk(uint64_t span_ns, unsigned long long* out, uint32_t* place, uint32_t* started) {
+    extern __shared__ __align__(16) uint8_t dyn[];  // 200 KB, only reserved (1 CTA/SM)
+    signal_started(started);
+    const uint32_t rank = read_cluster_regs().ctarank;
+    record_place(place);
+    if (threadIdx.x == 0) dyn[0] = 0;
+    __syncwarp();
+    cluster_sync();
+    if (threadIdx.x == 0) {
+        const TimerPair a = read_timers_pair();
+        TimerPair b;
+        do { b = read_timers_pair(); } while (b.ns - a.ns < span_ns);
+        out[2 * rank] = b.cycles - a.cycles;
+        out[2 * rank + 1] = b.ns - a.ns;
+    }
+    __syncwarp();
+    cluster_sync();
+}
+
 using K2Fn = void (*)(uint32_t, uint32_t, uint32_t*, uint32_t*, uint32_t*, uint32_t*, uint32_t*);
 struct K2Var { K2Fn k; int m; bool gt; };
 static const K2Var kK2[4] = {{k2_all<M_STASYNC, false>, M_STASYNC, false}, {k2_all<M_ST, false>, M_ST, false},
                              {k2_all<M_STASYNC, true>, M_STASYNC, true}, {k2_all<M_ST, true>, M_ST, true}};
 
 // ---------------------------------------------------------------- host: sessions
-enum KMask { K_K1 = 1, K_K1F = 2, K_K2 = 4 };
+enum KMask { K_K1 = 1, K_K1F = 2, K_K2 = 4, K_CLK = 8 };
+constexpr uint64_t kClkSpanNs = 20000000;  // 20 ms per clock measurement
 
 struct Spec {
     std::string schedule;
@@ -359,9 +388,13 @@ struct Files {
           sess(hb::Run::results("10__heatmap__sessions.csv"),
                hb::with_mandatory({"schedule", "load_condition", "session", "cs", "target_gpc", "subset", "target_smids", "placeholders_kept",
                                    "outcome", "n_launches", "n_discarded", "smids_used"})),
-          disc(hb::Run::results("10__heatmap__discards.csv"), hb::with_mandatory({"schedule", "session", "label", "reason"})) {}
-    void flush_all() { for (hb::CsvWriter* w : {&pairs, &hop, &fhist, &fraw, &loaded, &lhist, &vis, &vhist, &sess, &disc}) w->flush(); }
-    void sync_all() { for (hb::CsvWriter* w : {&pairs, &hop, &fhist, &fraw, &loaded, &lhist, &vis, &vhist, &sess, &disc}) w->sync(); }
+          disc(hb::Run::results("10__heatmap__discards.csv"), hb::with_mandatory({"schedule", "session", "label", "reason"})),
+          clk(hb::Run::results("10__heatmap__clock_check.csv"),
+              hb::with_mandatory({"schedule", "load_condition", "session", "cs", "target_gpc", "subset", "when", "rank", "smid", "gpc",
+                                  "d_cycles", "d_ns", "sm_mhz_measured"})) {}
+    hb::CsvWriter clk;
+    void flush_all() { for (hb::CsvWriter* w : {&pairs, &hop, &fhist, &fraw, &loaded, &lhist, &vis, &vhist, &sess, &disc, &clk}) w->flush(); }
+    void sync_all() { for (hb::CsvWriter* w : {&pairs, &hop, &fhist, &fraw, &loaded, &lhist, &vis, &vhist, &sess, &disc, &clk}) w->sync(); }
 };
 
 struct Ctx {
@@ -376,6 +409,7 @@ struct Ctx {
     hb::ClockSample last{};
     // device buffers (allocated once: nothing may synchronise the device while placeholders are resident)
     SBuf<K1Rec> k1out{kMaxPairs};
+    SBuf<unsigned long long> clkout{2 * kMaxCs};
     SBuf<uint32_t> k1fine{(size_t)kMaxPairs * kFineHops}, place{4 * kMaxCs}, samples{(size_t)kMaxPairs * kLSamples},
         k2g{(size_t)kMaxPairs * 4 * kReps}, k2rt{(size_t)kMaxPairs * kReps}, k2info{4 * kMaxCs};
     // pooled accumulators of the current (schedule, gpc) block
@@ -582,6 +616,24 @@ static void do_k1(Ctx& x, const Spec& s, Outcome& o) {
              });
 }
 
+static void do_clk(Ctx& x, const Spec& s, Outcome& o, const char* when) {
+    const std::string label = s.schedule + "_clk_" + when + "_cs" + std::to_string(s.cs) + "_g" + std::to_string(s.gpc) + "_" + cond_name(s.cond);
+    measured(x, s, o, label,
+             [&] { return launch_one(x, s, k_clk, 32, kClkSpanNs, x.clkout.d, x.place.d, x.st.started()); },
+             [&](const std::vector<uint32_t>& sm, const hb::ClockSample& smp) {
+                 std::vector<unsigned long long> h;
+                 x.clkout.get(h, x.st.A, 2 * s.cs);
+                 const std::string pre = x.run.prefix(x.li, smp);
+                 char b[384];
+                 for (int r = 0; r < s.cs; ++r) {
+                     std::snprintf(b, sizeof b, ",%s,%s,%d,%d,%d,%s,%s,%d,%u,%d,%llu,%llu,%.4f", s.schedule.c_str(), cond_name(s.cond), x.session, s.cs,
+                                   s.gpc, s.subset.c_str(), when, r, sm[r], x.map.gpc[sm[r]], h[2 * r], h[2 * r + 1], 1e3 * (double)h[2 * r] / (double)h[2 * r + 1]);
+                     x.f.clk.add(pre + b);
+                 }
+                 x.f.clk.flush();
+             });
+}
+
 static void do_k1f(Ctx& x, const Spec& s, Outcome& o) {
     const int cs = s.cs;
     const std::string label = s.schedule + "_k1f_cs" + std::to_string(cs) + "_g" + std::to_string(s.gpc) + "_" + cond_name(s.cond);
@@ -683,7 +735,9 @@ static Outcome run_session(Ctx& x, const Spec& s) {
     int kept = -1;
     if (s.cond != L_NONE) kept = x.st.begin(T, s.cond);
     Outcome o;
+    if (s.kernels & K_CLK) do_clk(x, s, o, "before");
     if (s.kernels & K_K1) do_k1(x, s, o);
+    if (s.kernels & K_CLK) do_clk(x, s, o, "after");
     if (s.kernels & K_K1F) do_k1f(x, s, o);
     if (s.kernels & K_K2)
         for (const K2Var& kv : kK2) do_k2(x, s, o, kv);
@@ -807,6 +861,37 @@ static std::vector<Spec> build(const SmMap10& m, const std::string& sch, bool qu
                     for (int cond : {L_IDLE, L_LIGHT, L_HEAVY}) v.push_back(mk(m, "D8", cond, 8, g, idx, idx_label(idx), ALL));
             }
         }
+    } else if (sch == "K") {  // clock check: real SM clock of the cluster's SMs around K1, per load condition
+        std::vector<int> gs;
+        for (int g : g16) if (gs.empty() || (capable_idx(m, g).size() != capable_idx(m, gs[0]).size() && gs.size() < 2)) gs.push_back(g);
+        std::vector<Spec> t;
+        int gmate = -1;  // first CS-16 GPC that also holds a mate-only TPC (G4 on this card)
+        for (int g : g16) if (gmate < 0 && m.tpcs[g].size() != capable_idx(m, g).size()) gmate = g;
+        // CS 16: G1 (no placeholder inside the GPC), G4 (mate-only TPC inside), G6 (one TPC left out)
+        for (int g : {gs[0], gmate, gs[1]}) t.push_back(cs16(g, 0, L_IDLE, "K"));
+        for (int g : gs) {  // CS 8: TPC indices 0–3, the other half of the GPC hosts the placeholders
+            const std::vector<int> ci = capable_idx(m, g);
+            t.push_back(mk(m, "K", L_IDLE, 8, g, {ci[0], ci[1], ci[2], ci[3]}, "0-1-2-3", K_K1));
+        }
+        for (int r = 0; r < (quick ? 1 : 5); ++r)
+            for (Spec s : t)
+                for (int cond : {L_IDLE, L_LIGHT, L_HEAVY}) {
+                    s.cond = cond;
+                    s.kernels = K_CLK | K_K1;
+                    v.push_back(s);
+                }
+    } else if (sch == "E2") {  // visibility without placeholders: lone CS-2 (SMs 124/125) and lone CS-16 cluster
+        for (int cs : {2, 16})
+            for (int r = 0; r < (quick ? 1 : 10); ++r) {
+                Spec s;
+                s.schedule = "E2";
+                s.cond = L_NONE;
+                s.cs = cs;
+                s.gpc = -1;
+                s.subset = "lone";
+                s.kernels = K_K2;
+                v.push_back(s);
+            }
     } else if (sch == "E") {
         for (int cs : {16, 8})
             for (int r = 0; r < (quick ? 2 : 20); ++r) {

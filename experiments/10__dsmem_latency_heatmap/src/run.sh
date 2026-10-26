@@ -2,7 +2,7 @@
 # Full run of experiment 10. Called by `make run` (or `make quick`: src/run.sh --quick) inside
 #   tools/run --profile --lock-sm-mhz 1635 -- make -C experiments/10__dsmem_latency_heatmap run
 # Order: clock check → steering pilot → schedules E, A, C, B, D, D8 (src/heatmap.cu) → K1 under ncu → clock check.
-# Usage: src/run.sh [--quick] [step ...], steps: steer E A C B D D8 ncu (default: all, in this order).
+# Usage: src/run.sh [--quick] [step ...], steps: steer E E2 A C B D D8 K ncu (default: all, in this order; K = clock check).
 # Every binary invocation appends to results/ with its own run_id; profiler reports stay in bin/.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -11,14 +11,14 @@ export CUDA_MODULE_LOADING=EAGER
 
 Q=""
 if [[ "${1:-}" == "--quick" ]]; then Q="--quick"; shift; fi
-STEPS="${*:-steer E A C B D D8 ncu}"
+STEPS="${*:-steer E E2 A C B D D8 K ncu}"
 H=bin/heatmap
 
 $H clockcheck --label start $Q
 for s in $STEPS; do
     case $s in
     steer) echo "== steering pilot"; $H steer $Q ;;
-    E|A|C|B|D|D8) echo "== schedule $s"; $H sched --schedule $s $Q ;;
+    E|E2|A|C|B|D|D8|K) echo "== schedule $s"; $H sched --schedule $s $Q ;;
     ncu)
         echo "== K1 under ncu (lone CS-16 and CS-8 cluster, chase + all-exit baseline)"
         WANT="sm__sass_inst_executed_op_dshared_ld.sum sm__sass_inst_executed_op_dshared.sum l1tex__t_requests_pipe_lsu_mem_dshared_op_ld.sum

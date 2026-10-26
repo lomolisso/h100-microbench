@@ -79,7 +79,7 @@ import math
 
 import numpy as np
 
-SCHEDULES = ["E", "A", "C", "B", "D", "D8"]
+SCHEDULES = ["E", "E2", "A", "C", "B", "D", "D8", "K"]
 
 
 def full_runs(res=RES, quick=False):

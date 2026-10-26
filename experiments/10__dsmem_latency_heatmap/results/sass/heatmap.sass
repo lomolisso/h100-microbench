@@ -1965,6 +1965,107 @@ identifier = src/heatmap.cu
 		..........
 
 
+		Function : _Z5k_clkmPyPjS0_
+	.headerflags	@"EF_CUDA_TEXMODE_UNIFIED EF_CUDA_64BIT_ADDRESS EF_CUDA_ACCELERATORS EF_CUDA_SM90 EF_CUDA_VIRTUAL_SM(EF_CUDA_SM90)"
+        /*0000*/                   LDC R1, c[0x0][0x28] ;
+        /*0010*/                   S2R R5, SR_CTAID.X ;
+        /*0020*/                   LDC R2, c[0x0][0x140] ;
+        /*0030*/                   ULDC.64 UR4, c[0x0][0x208] ;
+        /*0040*/                   BSSY B0, 0x120 ;
+        /*0050*/                   S2R R0, SR_TID.X ;
+        /*0060*/                   ISETP.EQ.U32.AND P1, PT, R2, 0x1, PT ;
+        /*0070*/                   LOP3.LUT P0, RZ, R0.reuse, R5, RZ, 0xfc, !PT ;
+        /*0080*/                   ISETP.NE.AND P2, PT, R0, RZ, PT ;
+        /*0090*/               @P0 BRA 0x110 ;
+        /*00a0*/                   LDC.64 R2, c[0x0][0x228] ;
+        /*00b0*/                   IMAD.MOV.U32 R7, RZ, RZ, 0x1 ;
+        /*00c0*/                   STG.E.STRONG.SYS desc[UR4][R2.64], R7 ;
+        /*00d0*/                   MEMBAR.SC.SYS ;
+        /*00e0*/                   ERRBAR;
+        /*00f0*/                   CGAERRBAR ;
+        /*0100*/                   CCTL.IVALL ;
+        /*0110*/                   BSYNC B0 ;
+        /*0120*/                   BSSY B0, 0x260 ;
+        /*0130*/               @P2 BRA 0x250 ;
+        /*0140*/                   S2R R9, SR_CgaCtaId ;
+        /*0150*/                   LDC.64 R2, c[0x0][0x220] ;
+        /*0160*/                   I2FP.F32.U32 R0, R5 ;
+        /*0170*/                   ULDC UR6, c[0x0][0x150] ;
+        /*0180*/                   S2R R13, SR_VIRTUALSMID ;
+        /*0190*/                   IMAD.SHL.U32 R5, R5, 0x4, RZ ;
+        /*01a0*/                   FMUL R4, R0, UR6 ;
+        /*01b0*/                   MOV R0, 0x400 ;
+        /*01c0*/                   LDC R11, c[0x0][0x188] ;
+        /*01d0*/                   F2I.U32.TRUNC.NTZ R7, R4 ;
+        /*01e0*/                   IMAD.WIDE.U32 R2, R5, 0x4, R2 ;
+        /*01f0*/                   STG.E desc[UR4][R2.64+0x4], R7 ;
+        /*0200*/                   LEA R0, R9, R0, 0x18 ;
+        /*0210*/                   STG.E desc[UR4][R2.64+0x8], R9 ;
+        /*0220*/                   STS.U8 [R0], RZ ;
+        /*0230*/                   STG.E desc[UR4][R2.64], R13 ;
+        /*0240*/                   STG.E desc[UR4][R2.64+0xc], R11 ;
+        /*0250*/                   BSYNC B0 ;
+        /*0260*/                   NOP ;
+        /*0270*/              @!P1 BRA 0x2d0 ;
+        /*0280*/                   MEMBAR.ALL.GPU ;
+        /*0290*/                   ERRBAR;
+        /*02a0*/                   CGAERRBAR ;
+        /*02b0*/                   UCGABAR_ARV ;
+        /*02c0*/                   BRA 0x2e0 ;
+        /*02d0*/                   NOP ;
+        /*02e0*/              @!P1 BRA 0x320 ;
+        /*02f0*/                   UCGABAR_WAIT ;
+        /*0300*/                   CCTL.IVALL ;
+        /*0310*/                   BRA 0x330 ;
+        /*0320*/                   BAR.SYNC.DEFER_BLOCKING 0x0 ;
+        /*0330*/                   BSSY B0, 0x480 ;
+        /*0340*/               @P2 BRA 0x470 ;
+        /*0350*/                   CS2R R4, SR_CLOCKLO ;
+        /*0360*/                   CS2R R2, SR_GLOBALTIMERLO ;
+        /*0370*/                   S2R R11, SR_CgaCtaId ;
+        /*0380*/                   ULDC.64 UR6, c[0x0][0x210] ;
+        /*0390*/                   CS2R R6, SR_CLOCKLO ;
+        /*03a0*/                   CS2R R8, SR_GLOBALTIMERLO ;
+        /*03b0*/                   IADD3 R8, P0, -R2, R8, RZ ;
+        /*03c0*/                   IMAD.X R9, R9, 0x1, ~R3, P0 ;
+        /*03d0*/                   ISETP.GE.U32.AND P0, PT, R8, UR6, PT ;
+        /*03e0*/                   ISETP.GE.U32.AND.EX P0, PT, R9, UR7, PT, P0 ;
+        /*03f0*/              @!P0 BRA 0x390 ;
+        /*0400*/                   LDC.64 R2, c[0x0][0x218] ;
+        /*0410*/                   IADD3 R4, P0, -R4, R6, RZ ;
+        /*0420*/                   IMAD.SHL.U32 R11, R11, 0x2, RZ ;
+        /*0430*/                   IMAD.X R5, R7, 0x1, ~R5, P0 ;
+        /*0440*/                   IMAD.WIDE.U32 R2, R11, 0x8, R2 ;
+        /*0450*/                   STG.E.64 desc[UR4][R2.64+0x8], R8 ;
+        /*0460*/                   STG.E.64 desc[UR4][R2.64], R4 ;
+        /*0470*/                   BSYNC B0 ;
+        /*0480*/                   NOP ;
+        /*0490*/              @!P1 BRA 0x4f0 ;
+        /*04a0*/                   MEMBAR.ALL.GPU ;
+        /*04b0*/                   ERRBAR;
+        /*04c0*/                   CGAERRBAR ;
+        /*04d0*/                   UCGABAR_ARV ;
+        /*04e0*/                   BRA 0x500 ;
+        /*04f0*/                   NOP ;
+        /*0500*/              @!P1 BRA 0x540 ;
+        /*0510*/                   UCGABAR_WAIT ;
+        /*0520*/                   CCTL.IVALL ;
+        /*0530*/                   EXIT ;
+        /*0540*/                   BAR.SYNC.DEFER_BLOCKING 0x0 ;
+        /*0550*/                   EXIT ;
+        /*0560*/                   BRA 0x560;
+        /*0570*/                   NOP;
+        /*0580*/                   NOP;
+        /*0590*/                   NOP;
+        /*05a0*/                   NOP;
+        /*05b0*/                   NOP;
+        /*05c0*/                   NOP;
+        /*05d0*/                   NOP;
+        /*05e0*/                   NOP;
+        /*05f0*/                   NOP;
+		..........
+
+
 		Function : _Z10k1f_loadedmPjS_S_
 	.headerflags	@"EF_CUDA_TEXMODE_UNIFIED EF_CUDA_64BIT_ADDRESS EF_CUDA_ACCELERATORS EF_CUDA_SM90 EF_CUDA_VIRTUAL_SM(EF_CUDA_SM90)"
         /*0000*/                   LDC R1, c[0x0][0x28] ;
