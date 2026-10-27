@@ -57,12 +57,11 @@
 [slide 4] GPU: fence.sc.gpu (no prior store): 280.7
 [slide 4] GPU: fence.sc.gpu (after a store): 441.0
 [slide 4] GPU: grid.sync(): 1400.0
+[slide 4] round trip remote mbarrier.arrive.relaxed: 517.0
 [slide 4] round trip st.async + mbarrier: 565.0
+[slide 4] round trip red.async + mbarrier: 567.0
+[slide 4] round trip 2 × barrier.cluster: 712.0
 [slide 4] round trip st + ld.volatile poll: 754.0
-[slide 4] round trip remote mbarrier.arrive.release: 953.0
-[slide 4] round trip st.release / ld.acquire (SMEM): 1325.0
-[slide 4] round trip st.release / ld.acquire (global): 1962.0
-[slide 4] global flag, home in other partition: 2126.0
 [slide 6] allgather round-synchronous 256 B -> Bruck: 2561
 [slide 6] allgather round-synchronous 1024 B -> Bruck: 2198
 [slide 6] allgather round-synchronous 4096 B -> Bruck: 2810
@@ -88,21 +87,21 @@
 [slide 6] allreduce single-exchange 4096 B -> Pull RS + push AG: 3478
 [slide 6] allreduce single-exchange 16384 B -> Pull RS + push AG: 8932
 [slide 6] allreduce single-exchange 65536 B -> Pull RS + push AG: 30520
-[slide 6] alltoall mbarrier-only 256 B -> Direct push: 704
-[slide 6] alltoall mbarrier-only 1024 B -> Direct push: 682
-[slide 6] alltoall mbarrier-only 4096 B -> Direct push: 681
-[slide 6] alltoall mbarrier-only 16384 B -> Direct push: 985
-[slide 6] alltoall mbarrier-only 65536 B -> Direct push: 3114
+[slide 6] alltoall mbarrier-only 256 B -> Scattered direct push: 704
+[slide 6] alltoall mbarrier-only 1024 B -> Scattered direct push: 682
+[slide 6] alltoall mbarrier-only 4096 B -> Scattered direct push: 681
+[slide 6] alltoall mbarrier-only 16384 B -> Scattered direct push: 985
+[slide 6] alltoall mbarrier-only 65536 B -> Scattered direct push: 3114
 [slide 6] alltoall round-synchronous 256 B -> Pairwise XOR: 5123
 [slide 6] alltoall round-synchronous 1024 B -> Pairwise XOR: 6185
 [slide 6] alltoall round-synchronous 4096 B -> Pairwise XOR: 6248
 [slide 6] alltoall round-synchronous 16384 B -> Pairwise XOR: 6844
 [slide 6] alltoall round-synchronous 65536 B -> Pairwise XOR: 9380
-[slide 6] alltoall single-exchange 256 B -> Direct pull: 1441
-[slide 6] alltoall single-exchange 1024 B -> Direct pull: 1712
-[slide 6] alltoall single-exchange 4096 B -> Direct pull: 1837
-[slide 6] alltoall single-exchange 16384 B -> Direct pull: 3326
-[slide 6] alltoall single-exchange 65536 B -> Direct pull: 9846
+[slide 6] alltoall single-exchange 256 B -> Scattered direct pull: 1441
+[slide 6] alltoall single-exchange 1024 B -> Scattered direct pull: 1712
+[slide 6] alltoall single-exchange 4096 B -> Scattered direct pull: 1837
+[slide 6] alltoall single-exchange 16384 B -> Scattered direct pull: 3326
+[slide 6] alltoall single-exchange 65536 B -> Scattered direct pull: 9846
 [slide 6] reducescatter mbarrier-only 256 B -> Direct push: 758
 [slide 6] reducescatter mbarrier-only 1024 B -> Direct push: 749
 [slide 6] reducescatter mbarrier-only 4096 B -> Direct push: 782
@@ -146,21 +145,21 @@
 [slide 7] allreduce single-exchange 4096 B Pull RS + push AG: GB/s per SM, %: (6.7, 19.3)
 [slide 7] allreduce single-exchange 16384 B Pull RS + push AG: GB/s per SM, %: (10.5, 30.1)
 [slide 7] allreduce single-exchange 65536 B Pull RS + push AG: GB/s per SM, %: (12.3, 35.2)
-[slide 7] alltoall mbarrier-only 256 B Direct push: GB/s per SM, %: (1.0, 3.0)
-[slide 7] alltoall mbarrier-only 1024 B Direct push: GB/s per SM, %: (2.1, 6.2)
-[slide 7] alltoall mbarrier-only 4096 B Direct push: GB/s per SM, %: (8.6, 24.7)
-[slide 7] alltoall mbarrier-only 16384 B Direct push: GB/s per SM, %: (23.8, 68.2)
-[slide 7] alltoall mbarrier-only 65536 B Direct push: GB/s per SM, %: (30.1, 86.3)
+[slide 7] alltoall mbarrier-only 256 B Scattered direct push: GB/s per SM, %: (1.0, 3.0)
+[slide 7] alltoall mbarrier-only 1024 B Scattered direct push: GB/s per SM, %: (2.1, 6.2)
+[slide 7] alltoall mbarrier-only 4096 B Scattered direct push: GB/s per SM, %: (8.6, 24.7)
+[slide 7] alltoall mbarrier-only 16384 B Scattered direct push: GB/s per SM, %: (23.8, 68.2)
+[slide 7] alltoall mbarrier-only 65536 B Scattered direct push: GB/s per SM, %: (30.1, 86.3)
 [slide 7] alltoall round-synchronous 256 B Pairwise XOR: GB/s per SM, %: (0.1, 0.4)
 [slide 7] alltoall round-synchronous 1024 B Pairwise XOR: GB/s per SM, %: (0.2, 0.7)
 [slide 7] alltoall round-synchronous 4096 B Pairwise XOR: GB/s per SM, %: (0.9, 2.7)
 [slide 7] alltoall round-synchronous 16384 B Pairwise XOR: GB/s per SM, %: (3.4, 9.8)
 [slide 7] alltoall round-synchronous 65536 B Pairwise XOR: GB/s per SM, %: (10.0, 28.7)
-[slide 7] alltoall single-exchange 256 B Direct pull: GB/s per SM, %: (0.3, 0.7)
-[slide 7] alltoall single-exchange 1024 B Direct pull: GB/s per SM, %: (0.9, 2.5)
-[slide 7] alltoall single-exchange 4096 B Direct pull: GB/s per SM, %: (3.2, 9.1)
-[slide 7] alltoall single-exchange 16384 B Direct pull: GB/s per SM, %: (7.0, 20.2)
-[slide 7] alltoall single-exchange 65536 B Direct pull: GB/s per SM, %: (9.5, 27.3)
+[slide 7] alltoall single-exchange 256 B Scattered direct pull: GB/s per SM, %: (0.3, 0.7)
+[slide 7] alltoall single-exchange 1024 B Scattered direct pull: GB/s per SM, %: (0.9, 2.5)
+[slide 7] alltoall single-exchange 4096 B Scattered direct pull: GB/s per SM, %: (3.2, 9.1)
+[slide 7] alltoall single-exchange 16384 B Scattered direct pull: GB/s per SM, %: (7.0, 20.2)
+[slide 7] alltoall single-exchange 65536 B Scattered direct pull: GB/s per SM, %: (9.5, 27.3)
 [slide 7] reducescatter mbarrier-only 256 B Direct push: GB/s per SM, %: (1.0, 2.8)
 [slide 7] reducescatter mbarrier-only 1024 B Direct push: GB/s per SM, %: (2.0, 5.6)
 [slide 7] reducescatter mbarrier-only 4096 B Direct push: GB/s per SM, %: (7.5, 21.5)
@@ -227,9 +226,9 @@ AllReduce two-shot push      256 B      1382                0        26         
 
 | Collective | Algorithm | Origin | Synchronization | Rounds | Transport |
 |---|---|---|---|---|---|
-| AllReduce | 2-D mesh | generic | mbarrier-only | 3 | bulk copy |
+| AllReduce | 2-D torus | 2D-Torus all-reduce (Mikami et al.) | mbarrier-only | 3 | bulk copy |
 | AllReduce | Two-shot push | TensorRT-LLM | mbarrier-only | 2 | bulk copy |
-| AllReduce | Atomic all-push | generic | single-exchange | 1 | remote atomic |
+| AllReduce | Atomic all-push | ClusterFusion (scalar ClusterReduce) | single-exchange | 1 | remote atomic |
 | AllReduce | One-shot pull | TensorRT-LLM | single-exchange | 1 | remote load |
 | AllReduce | Pull RS + push AG | hpc-ops | single-exchange | 1 | remote load/store |
 | AllReduce | Replicated direct push | CREDIT | single-exchange | 1 | remote store |
@@ -239,20 +238,20 @@ AllReduce two-shot push      256 B      1382                0        26         
 | AllReduce | Ring (RS + AG) | NCCL | round-synchronous | 2(N−1) | bulk copy |
 | AllReduce | Shift-accumulate (atomic) | ClusterFusion | round-synchronous | N−2 | remote atomic |
 | AllReduce | Shift-accumulate (bulk) | ClusterFusion | round-synchronous | N−2 | bulk copy |
-| AllGather | Direct pull | generic | single-exchange | 1 | remote load |
+| AllGather | Direct pull | TensorRT-LLM (one-shot gather) | single-exchange | 1 | remote load |
 | AllGather | Direct push | CREDIT | single-exchange | 1 | remote store |
 | AllGather | Binomial gather + broadcast | MPICH | round-synchronous | 2·log₂N | bulk copy |
 | AllGather | Bruck | MPICH | round-synchronous | ⌈log₂N⌉ | bulk copy |
 | AllGather | Direct shift | ClusterFusion | round-synchronous | N−1 | bulk copy |
 | AllGather | Recursive doubling | ClusterFusion | round-synchronous | log₂N | bulk copy |
 | AllGather | Ring | NCCL | round-synchronous | N−1 | bulk copy |
-| ReduceScatter | Direct push | generic | mbarrier-only | 1 | bulk copy |
-| ReduceScatter | Direct pull | generic | single-exchange | 1 | remote load |
+| ReduceScatter | Direct push | TensorRT-LLM (two-shot phase 1) | mbarrier-only | 1 | bulk copy |
+| ReduceScatter | Direct pull | hpc-ops (phase 1) | single-exchange | 1 | remote load |
 | ReduceScatter | Recursive halving | MPICH | round-synchronous | log₂N | bulk copy |
 | ReduceScatter | Ring | NCCL | round-synchronous | N−1 | bulk copy |
-| AlltoAll | Direct push | generic | mbarrier-only | 1 | bulk copy |
 | AlltoAll | Pairwise exchange | FlashAttention-4 | mbarrier-only | 1 (N = 2 only) | bulk copy |
-| AlltoAll | Direct pull | generic | single-exchange | 1 | remote load |
+| AlltoAll | Scattered direct push | MPICH | mbarrier-only | 1 | bulk copy |
+| AlltoAll | Scattered direct pull | MPICH (pull form) | single-exchange | 1 | remote load |
 | AlltoAll | Bruck | MPICH | round-synchronous | log₂N | bulk copy |
 | AlltoAll | Pairwise XOR | MPICH | round-synchronous | N−1 | bulk copy |
-| AlltoAll | Shift | generic | round-synchronous | N−1 | bulk copy |
+| AlltoAll | Pairwise exchange (shift) | MPICH | round-synchronous | N−1 | bulk copy |

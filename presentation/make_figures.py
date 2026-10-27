@@ -277,35 +277,27 @@ def handoff():
     plt.close("all")
     rt = i["cs2_round_trip_cycles"]
     pick = lambda s: next(v for k, v in rt.items() if s in k)
-    rows = [("st.async + mbarrier", pick("st.async"), S.BLUE),
-            ("st + ld.volatile poll", pick("remote st + local"), S.GREY),
-            ("remote mbarrier.arrive.release", pick("arrive (release)"), S.ORANGE),
-            ("st.release / ld.acquire (SMEM)", pick("st.release"), S.ORANGE),
-            ("st.release / ld.acquire (global)", pick("global flag"), S.ORANGE)]
+    rows = [("remote mbarrier.arrive.relaxed", pick("arrive (relaxed)"), S.GREY),
+            ("st.async + mbarrier", pick("st.async"), S.BLUE),
+            ("red.async + mbarrier", pick("red.async"), S.BLUE),
+            ("2 × barrier.cluster", pick("two cluster.sync"), S.ORANGE),
+            ("st + ld.volatile poll", pick("remote st + local"), S.GREY)]
     f, ax = plt.subplots(figsize=(5.4, 3.8), constrained_layout=True)
     y = np.arange(len(rows))[::-1]
     rects = ax.barh(y, [r[1] for r in rows], color=[r[2] for r in rows], height=0.62)
-    gf = i["global_flag_home_other_partition"]
-    ax.plot([rows[-1][1], gf], [y[-1], y[-1]], color=S.INK, lw=1.2)
-    ax.plot([gf, gf], [y[-1] - 0.16, y[-1] + 0.16], color=S.INK, lw=1.2)
-    for r, (lab, val, _) in zip(rects, rows):
-        txt = f"{val:.0f}–{gf:.0f}" if "global" in lab else f"{val:.0f}"
-        x = gf if "global" in lab else val
-        ax.annotate(txt, (x, r.get_y() + r.get_height() / 2), xytext=(4, 0), textcoords="offset points",
-                    va="center", fontsize=10.5, color=S.INK2)
+    bar_labels(ax, rects, horizontal=True)
     ax.set_yticks(y, [r[0] for r in rows], fontsize=10.5)
     ax.tick_params(axis="y", length=0)
     ax.grid(axis="y", visible=False)
     ax.grid(axis="x", visible=True)
-    ax.set_xlim(0, 2700)
+    ax.set_xlim(0, 900)
     ax.set_xlabel("Round trip (cycles)")
-    f.legend(handles=[Patch(color=S.BLUE, label="data + completion (no fence)"),
-                      Patch(color=S.GREY, label="no ordering guarantee"),
-                      Patch(color=S.ORANGE, label="release / acquire")],
-             loc="outside upper center", ncol=1, fontsize=10.5)
+    f.legend(handles=[Patch(color=S.BLUE, label="data with completion"),
+                      Patch(color=S.GREY, label="signal only"),
+                      Patch(color=S.ORANGE, label="cluster barrier")],
+             loc="outside upper center", ncol=3, fontsize=10.5)
     for lab, val, _ in rows:
         note(4, f"round trip {lab}", val)
-    note(4, "global flag, home in other partition", gf)
     save(f, "handoff")
 
 
@@ -321,24 +313,24 @@ ALG = {  # file -> (algorithm, origin, rounds, transport)
     "allreduce__pull_reduce_scatter_push_allgather__hpcops": ("Pull RS + push AG", "hpc-ops", "1", "remote load/store"),
     "allreduce__shift_accumulate_bulk__clusterfusion": ("Shift-accumulate (bulk)", "ClusterFusion", "N−2", "bulk copy"),
     "allreduce__shift_accumulate_atomic__clusterfusion": ("Shift-accumulate (atomic)", "ClusterFusion", "N−2", "remote atomic"),
-    "allreduce__atomic_all_push__generic": ("Atomic all-push", "generic", "1", "remote atomic"),
-    "allreduce__2d_mesh__generic": ("2-D mesh", "generic", "3", "bulk copy"),
+    "allreduce__atomic_all_push__generic": ("Atomic all-push", "ClusterFusion (scalar ClusterReduce)", "1", "remote atomic"),
+    "allreduce__2d_mesh__generic": ("2-D torus", "2D-Torus all-reduce (Mikami et al.)", "3", "bulk copy"),
     "allgather__ring__nccl": ("Ring", "NCCL", "N−1", "bulk copy"),
     "allgather__recursive_doubling__clusterfusion": ("Recursive doubling", "ClusterFusion", "log₂N", "bulk copy"),
     "allgather__direct_shift__clusterfusion": ("Direct shift", "ClusterFusion", "N−1", "bulk copy"),
     "allgather__bruck__mpich": ("Bruck", "MPICH", "⌈log₂N⌉", "bulk copy"),
     "allgather__gather_bcast_binomial__mpich": ("Binomial gather + broadcast", "MPICH", "2·log₂N", "bulk copy"),
     "allgather__direct_replicated_push__credit": ("Direct push", "CREDIT", "1", "remote store"),
-    "allgather__direct_pull__generic": ("Direct pull", "generic", "1", "remote load"),
+    "allgather__direct_pull__generic": ("Direct pull", "TensorRT-LLM (one-shot gather)", "1", "remote load"),
     "reducescatter__ring__nccl": ("Ring", "NCCL", "N−1", "bulk copy"),
     "reducescatter__recursive_halving__mpich": ("Recursive halving", "MPICH", "log₂N", "bulk copy"),
-    "reducescatter__direct_push__generic": ("Direct push", "generic", "1", "bulk copy"),
-    "reducescatter__direct_pull__generic": ("Direct pull", "generic", "1", "remote load"),
+    "reducescatter__direct_push__generic": ("Direct push", "TensorRT-LLM (two-shot phase 1)", "1", "bulk copy"),
+    "reducescatter__direct_pull__generic": ("Direct pull", "hpc-ops (phase 1)", "1", "remote load"),
     "alltoall__pairwise_xor__mpich": ("Pairwise XOR", "MPICH", "N−1", "bulk copy"),
     "alltoall__bruck__mpich": ("Bruck", "MPICH", "log₂N", "bulk copy"),
-    "alltoall__shift__generic": ("Shift", "generic", "N−1", "bulk copy"),
-    "alltoall__direct_push__generic": ("Direct push", "generic", "1", "bulk copy"),
-    "alltoall__direct_pull__generic": ("Direct pull", "generic", "1", "remote load"),
+    "alltoall__shift__generic": ("Pairwise exchange (shift)", "MPICH", "N−1", "bulk copy"),
+    "alltoall__direct_push__generic": ("Scattered direct push", "MPICH", "1", "bulk copy"),
+    "alltoall__direct_pull__generic": ("Scattered direct pull", "MPICH (pull form)", "1", "remote load"),
     "alltoall__pairwise_exchange__fa4": ("Pairwise exchange", "FlashAttention-4", "1 (N = 2 only)", "bulk copy"),
 }
 CLASS_OF = dict(zip(C.CF.STYLES, S.CLASSES))

@@ -37,15 +37,16 @@ Figure: `dsmem_bandwidth.png`
 ## 4. Synchronization overheads
 Figures: `sync_costs.png` (left; 256 threads per CTA), `handoff.png` (right; CS 2)
 
-- Every release operation compiles to a GPU-scope `MEMBAR`: `fence.sc.gpu` **281 cycles**, **441** after a prior store
-- `barrier.cluster`: **410 cycles** (no prior store), **580** (after a store); relaxed arrive + wait: 46
 - mbarrier operations: **29–39 cycles**
-- Lowest-cost data hand-off: `st.async` + mbarrier, **565-cycle round trip**; release/acquire flag 1325; global-memory flag 1962–2126
+- `barrier.cluster`: **410 cycles** without a prior store, **580** after a store; relaxed arrive + wait: **46**
+- Lowest-cost hand-off with data: `st.async` / `red.async` + mbarrier, **565-cycle round trip** (≈ 160 ns one way)
+- A hand-off through two cluster barriers costs **712 cycles**
 
 ---
 
 ## 5. DSMEM collectives: algorithms
 Table below (also `collective_algorithms.csv`). One cluster per launch, 256 threads per CTA, N = 2–16.
+Origin references: MPICH — Thakur, Rabenseifner, Gropp, *Optimization of Collective Communication Operations in MPICH*, IJHPCA 19(1), 2005; 2D-Torus all-reduce — Mikami et al., *Massively Distributed SGD: ImageNet/ResNet-50 Training in a Flash*, arXiv:1811.05233, 2018.
 
 Synchronization taxonomy:
 - **mbarrier-only** — data movement completes on the receiver's mbarrier; no cluster barrier inside the collective
@@ -54,9 +55,9 @@ Synchronization taxonomy:
 
 | Collective | Algorithm | Origin | Synchronization | Rounds | Transport |
 |---|---|---|---|---|---|
-| AllReduce | 2-D mesh | generic | mbarrier-only | 3 | bulk copy |
+| AllReduce | 2-D torus | 2D-Torus all-reduce (Mikami et al.) | mbarrier-only | 3 | bulk copy |
 | AllReduce | Two-shot push | TensorRT-LLM | mbarrier-only | 2 | bulk copy |
-| AllReduce | Atomic all-push | generic | single-exchange | 1 | remote atomic |
+| AllReduce | Atomic all-push | ClusterFusion (scalar ClusterReduce) | single-exchange | 1 | remote atomic |
 | AllReduce | One-shot pull | TensorRT-LLM | single-exchange | 1 | remote load |
 | AllReduce | Pull RS + push AG | hpc-ops | single-exchange | 1 | remote load/store |
 | AllReduce | Replicated direct push | CREDIT | single-exchange | 1 | remote store |
@@ -66,24 +67,23 @@ Synchronization taxonomy:
 | AllReduce | Ring (RS + AG) | NCCL | round-synchronous | 2(N−1) | bulk copy |
 | AllReduce | Shift-accumulate (atomic) | ClusterFusion | round-synchronous | N−2 | remote atomic |
 | AllReduce | Shift-accumulate (bulk) | ClusterFusion | round-synchronous | N−2 | bulk copy |
-| AllGather | Direct pull | generic | single-exchange | 1 | remote load |
+| AllGather | Direct pull | TensorRT-LLM (one-shot gather) | single-exchange | 1 | remote load |
 | AllGather | Direct push | CREDIT | single-exchange | 1 | remote store |
 | AllGather | Binomial gather + broadcast | MPICH | round-synchronous | 2·log₂N | bulk copy |
 | AllGather | Bruck | MPICH | round-synchronous | ⌈log₂N⌉ | bulk copy |
 | AllGather | Direct shift | ClusterFusion | round-synchronous | N−1 | bulk copy |
 | AllGather | Recursive doubling | ClusterFusion | round-synchronous | log₂N | bulk copy |
 | AllGather | Ring | NCCL | round-synchronous | N−1 | bulk copy |
-| ReduceScatter | Direct push | generic | mbarrier-only | 1 | bulk copy |
-| ReduceScatter | Direct pull | generic | single-exchange | 1 | remote load |
+| ReduceScatter | Direct push | TensorRT-LLM (two-shot phase 1) | mbarrier-only | 1 | bulk copy |
+| ReduceScatter | Direct pull | hpc-ops (phase 1) | single-exchange | 1 | remote load |
 | ReduceScatter | Recursive halving | MPICH | round-synchronous | log₂N | bulk copy |
 | ReduceScatter | Ring | NCCL | round-synchronous | N−1 | bulk copy |
-| AlltoAll | Direct push | generic | mbarrier-only | 1 | bulk copy |
 | AlltoAll | Pairwise exchange | FlashAttention-4 | mbarrier-only | 1 (N = 2 only) | bulk copy |
-| AlltoAll | Direct pull | generic | single-exchange | 1 | remote load |
+| AlltoAll | Scattered direct push | MPICH | mbarrier-only | 1 | bulk copy |
+| AlltoAll | Scattered direct pull | MPICH (pull form) | single-exchange | 1 | remote load |
 | AlltoAll | Bruck | MPICH | round-synchronous | log₂N | bulk copy |
 | AlltoAll | Pairwise XOR | MPICH | round-synchronous | N−1 | bulk copy |
-| AlltoAll | Shift | generic | round-synchronous | N−1 | bulk copy |
-
+| AlltoAll | Pairwise exchange (shift) | MPICH | round-synchronous | N−1 | bulk copy |
 
 ---
 
