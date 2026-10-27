@@ -1,0 +1,258 @@
+[slide 1] latency SMEM: 23.0
+[slide 1] latency L1: 32.1
+[slide 1] latency DSMEM (remote SM): 201.8
+[slide 1] latency L2, near partition: 270.1
+[slide 1] latency TMA load, L2: 323.1
+[slide 1] latency L2, far partition: 427.0
+[slide 1] latency HBM, near partition: 506.1
+[slide 1] latency TMA load, HBM: 670.9
+[slide 1] latency HBM, far partition: 667.6
+[slide 1] plain ld.global chase L2 / HBM: (270.1, 614.8)
+[slide 1] TMA copy model T0, B/cycle: (340.0, 106.7)
+[slide 1] DSMEM / L2 near: 0.75
+[slide 1] aggregate SMEM load TB/s: 27.46
+[slide 1] aggregate SMEM store TB/s: 27.28
+[slide 1] aggregate L2 read TB/s: 7.71
+[slide 1] aggregate L2 write TB/s: 3.95
+[slide 1] aggregate HBM read TB/s: 3.7
+[slide 1] aggregate HBM write TB/s: 3.62
+[slide 1] aggregate DSMEM (CS 2–16) TB/s: 3.15
+[slide 1] aggregate DSMEM TB/s range: (2.31, 3.98)
+[slide 1] per-SM SMEM GB/s: 209.3
+[slide 1] per-SM TMA load (one copy) GB/s: 174.5
+[slide 1] per-SM L2 read GB/s: 134.7
+[slide 1] per-SM HBM read GB/s: 99.9
+[slide 1] per-SM DSMEM ejection GB/s: 52.8
+[slide 1] per-SM DSMEM injection GB/s: 34.9
+[slide 1] HBM read 90 % at SMs: 68
+[slide 2] DSMEM median CS 2: 201.7
+[slide 2] DSMEM p5-p95 CS 2: (np.float64(185.2), np.float64(217.2))
+[slide 2] DSMEM median CS 4: 204.6
+[slide 2] DSMEM p5-p95 CS 4: (np.float64(187.0), np.float64(215.2))
+[slide 2] DSMEM median CS 8: 199.9
+[slide 2] DSMEM p5-p95 CS 8: (np.float64(187.4), np.float64(214.7))
+[slide 2] DSMEM median CS 16: 201.9
+[slide 2] DSMEM p5-p95 CS 16: (np.float64(190.9), np.float64(213.4))
+[slide 2] pair latency range / median (all 1876 pairs): (np.float64(186.0046), np.float64(222.0049), np.float64(202.0051))
+[slide 2] GPC 6 pair range: (186.0049, 218.5049)
+[slide 3] injection 1 peer GB/s: 34.7
+[slide 3] injection 15 peers GB/s: 34.9
+[slide 3] ejection 1 peer GB/s: 34.7
+[slide 3] ejection 3 peers GB/s: 52.7
+[slide 3] ejection 7 peers GB/s: 53.5
+[slide 3] ejection 15 peers GB/s: 56.2
+[slide 3] aggregate ld TB/s by CS: {2: 3.48, 4: 2.77, 8: 2.78, 16: 2.61}
+[slide 3] aggregate st TB/s by CS: {2: 3.86, 4: 3.27, 8: 3.2, 16: 3.1}
+[slide 3] aggregate TMA put TB/s by CS: {2: 3.98, 4: 3.25, 8: 2.92, 16: 2.31}
+[slide 3] ld B/cycle by bytes in flight: {2048: 7.35, 4096: 13.57, 8192: 21.31, 16384: 21.33, 32768: 21.37, 65536: 21.46, 131072: 22.63}
+[slide 3] ring B/cycle per SM single vs full GPC: {'ld_cs2_single': 17.12, 'ld_cs2_full': 16.64, 'ld_cs4_single': 17.13, 'ld_cs4_full': 14.4, 'ld_cs8_single': 17.13, 'ld_cs8_full': 14.51, 'ld_cs16_single': 14.95, 'ld_cs16_full': 14.93, 'st_cs2_single': 20.3, 'st_cs2_full': 18.94, 'st_cs4_single': 20.35, 'st_cs4_full': 17.83, 'st_cs8_single': 20.37, 'st_cs8_full': 17.83, 'st_cs16_single': 18.58, 'st_cs16_full': 18.51, 'st_async_cs2_single': 20.93, 'st_async_cs2_full': 19.77, 'st_async_cs4_single': 20.93, 'st_async_cs4_full': 18.73, 'st_async_cs8_single': 20.91, 'st_async_cs8_full': 18.71, 'st_async_cs16_single': 19.24, 'st_async_cs16_full': 19.26, 'tma_put_cs2_single': 20.32, 'tma_put_cs2_full': 19.42, 'tma_put_cs4_single': 20.6, 'tma_put_cs4_full': 18.48, 'tma_put_cs8_single': 20.55, 'tma_put_cs8_full': 18.75, 'tma_put_cs16_single': 19.45, 'tma_put_cs16_full': 19.47, 'tma_red_cs2_single': 16.22, 'tma_red_cs2_full': 15.14, 'tma_red_cs4_single': 16.44, 'tma_red_cs4_full': 14.73, 'tma_red_cs8_single': 16.48, 'tma_red_cs8_full': 14.81, 'tma_red_cs16_single': 15.45, 'tma_red_cs16_full': 15.38}
+[slide 4] CTA: __syncthreads(): 24.0
+[slide 4] CTA: fence.proxy.async.shared::cta: 10.3
+[slide 4] mbarrier: mbarrier.arrive: 29.0
+[slide 4] mbarrier: mbarrier.arrive.expect_tx: 38.0
+[slide 4] mbarrier: mbarrier.try_wait (phase complete): 39.0
+[slide 4] cluster: barrier.cluster arrive.relaxed + wait: 46.3
+[slide 4] cluster: barrier.cluster (no prior store): 410.3
+[slide 4] cluster: barrier.cluster (after a store): 580.0
+[slide 4] GPU: fence.sc.gpu (no prior store): 280.7
+[slide 4] GPU: fence.sc.gpu (after a store): 441.0
+[slide 4] GPU: grid.sync(): 1400.0
+[slide 4] round trip st.async + mbarrier: 565.0
+[slide 4] round trip st + ld.volatile poll: 754.0
+[slide 4] round trip remote mbarrier.arrive.release: 953.0
+[slide 4] round trip st.release / ld.acquire (SMEM): 1325.0
+[slide 4] round trip st.release / ld.acquire (global): 1962.0
+[slide 4] global flag, home in other partition: 2126.0
+[slide 6] allgather round-synchronous 256 B -> Bruck: 2561
+[slide 6] allgather round-synchronous 1024 B -> Bruck: 2198
+[slide 6] allgather round-synchronous 4096 B -> Recursive doubling: 2798
+[slide 6] allgather round-synchronous 16384 B -> Bruck: 2965
+[slide 6] allgather round-synchronous 65536 B -> Recursive doubling: 5066
+[slide 6] allgather single-exchange 256 B -> Direct push: 836
+[slide 6] allgather single-exchange 1024 B -> Direct push: 809
+[slide 6] allgather single-exchange 4096 B -> Direct push: 1143
+[slide 6] allgather single-exchange 16384 B -> Direct push: 2223
+[slide 6] allgather single-exchange 65536 B -> Direct push: 6583
+[slide 6] allreduce mbarrier-only 256 B -> 2-D mesh: 1292
+[slide 6] allreduce mbarrier-only 1024 B -> 2-D mesh: 1306
+[slide 6] allreduce mbarrier-only 4096 B -> Two-shot push: 1490
+[slide 6] allreduce mbarrier-only 16384 B -> Two-shot push: 2345
+[slide 6] allreduce mbarrier-only 65536 B -> Two-shot push: 7458
+[slide 6] allreduce round-synchronous 256 B -> Recursive doubling: 2640
+[slide 6] allreduce round-synchronous 1024 B -> Recursive doubling: 3300
+[slide 6] allreduce round-synchronous 4096 B -> Recursive doubling: 4210
+[slide 6] allreduce round-synchronous 16384 B -> Rabenseifner: 7853
+[slide 6] allreduce round-synchronous 65536 B -> Rabenseifner: 14387
+[slide 6] allreduce single-exchange 256 B -> Replicated direct push: 1508
+[slide 6] allreduce single-exchange 1024 B -> Pull RS + push AG: 2215
+[slide 6] allreduce single-exchange 4096 B -> Pull RS + push AG: 3478
+[slide 6] allreduce single-exchange 16384 B -> Pull RS + push AG: 8932
+[slide 6] allreduce single-exchange 65536 B -> Pull RS + push AG: 30520
+[slide 6] alltoall mbarrier-only 256 B -> Direct push: 704
+[slide 6] alltoall mbarrier-only 1024 B -> Direct push: 682
+[slide 6] alltoall mbarrier-only 4096 B -> Direct push: 681
+[slide 6] alltoall mbarrier-only 16384 B -> Direct push: 985
+[slide 6] alltoall mbarrier-only 65536 B -> Direct push: 3114
+[slide 6] alltoall round-synchronous 256 B -> Pairwise XOR: 5123
+[slide 6] alltoall round-synchronous 1024 B -> Bruck: 6128
+[slide 6] alltoall round-synchronous 4096 B -> Pairwise XOR: 6248
+[slide 6] alltoall round-synchronous 16384 B -> Pairwise XOR: 6844
+[slide 6] alltoall round-synchronous 65536 B -> Pairwise XOR: 9380
+[slide 6] alltoall single-exchange 256 B -> Direct pull: 1441
+[slide 6] alltoall single-exchange 1024 B -> Direct pull: 1712
+[slide 6] alltoall single-exchange 4096 B -> Direct pull: 1837
+[slide 6] alltoall single-exchange 16384 B -> Direct pull: 3326
+[slide 6] alltoall single-exchange 65536 B -> Direct pull: 9846
+[slide 6] reducescatter mbarrier-only 256 B -> Direct push: 758
+[slide 6] reducescatter mbarrier-only 1024 B -> Direct push: 749
+[slide 6] reducescatter mbarrier-only 4096 B -> Direct push: 782
+[slide 6] reducescatter mbarrier-only 16384 B -> Direct push: 1290
+[slide 6] reducescatter mbarrier-only 65536 B -> Direct push: 4252
+[slide 6] reducescatter round-synchronous 256 B -> Recursive halving: 3063
+[slide 6] reducescatter round-synchronous 1024 B -> Recursive halving: 2591
+[slide 6] reducescatter round-synchronous 4096 B -> Recursive halving: 3445
+[slide 6] reducescatter round-synchronous 16384 B -> Recursive halving: 4190
+[slide 6] reducescatter round-synchronous 65536 B -> Recursive halving: 8636
+[slide 6] reducescatter single-exchange 256 B -> Direct pull: 3327
+[slide 6] reducescatter single-exchange 1024 B -> Direct pull: 3073
+[slide 6] reducescatter single-exchange 4096 B -> Direct pull: 3697
+[slide 6] reducescatter single-exchange 16384 B -> Direct pull: 3996
+[slide 6] reducescatter single-exchange 65536 B -> Direct pull: 7203
+[slide 6] allreduce: (fastest with cluster barriers) / mbarrier-only: {256: 1.17, 1024: 1.7, 4096: 2.33, 16384: 3.35, 65536: 1.93}
+[slide 6] reducescatter: (fastest with cluster barriers) / mbarrier-only: {256: 4.04, 1024: 3.46, 4096: 4.41, 16384: 3.1, 65536: 1.69}
+[slide 6] alltoall: (fastest with cluster barriers) / mbarrier-only: {256: 2.05, 1024: 2.51, 4096: 2.7, 16384: 3.38, 65536: 3.01}
+[slide 7] allgather round-synchronous 256 B Bruck: GB/s per SM, %: (0.2, 0.5)
+[slide 7] allgather round-synchronous 1024 B Bruck: GB/s per SM, %: (0.7, 1.9)
+[slide 7] allgather round-synchronous 4096 B Recursive doubling: GB/s per SM, %: (2.1, 6.0)
+[slide 7] allgather round-synchronous 16384 B Bruck: GB/s per SM, %: (7.9, 22.7)
+[slide 7] allgather round-synchronous 65536 B Recursive doubling: GB/s per SM, %: (18.5, 53.1)
+[slide 7] allgather single-exchange 256 B Direct push: GB/s per SM, %: (0.9, 2.5)
+[slide 7] allgather single-exchange 1024 B Direct push: GB/s per SM, %: (1.8, 5.2)
+[slide 7] allgather single-exchange 4096 B Direct push: GB/s per SM, %: (5.1, 14.7)
+[slide 7] allgather single-exchange 16384 B Direct push: GB/s per SM, %: (10.5, 30.2)
+[slide 7] allgather single-exchange 65536 B Direct push: GB/s per SM, %: (14.2, 40.8)
+[slide 7] allreduce mbarrier-only 256 B 2-D mesh: GB/s per SM, %: (0.6, 1.6)
+[slide 7] allreduce mbarrier-only 1024 B 2-D mesh: GB/s per SM, %: (2.2, 6.4)
+[slide 7] allreduce mbarrier-only 4096 B Two-shot push: GB/s per SM, %: (7.9, 22.5)
+[slide 7] allreduce mbarrier-only 16384 B Two-shot push: GB/s per SM, %: (20.0, 57.3)
+[slide 7] allreduce mbarrier-only 65536 B Two-shot push: GB/s per SM, %: (25.1, 72.1)
+[slide 7] allreduce round-synchronous 256 B Recursive doubling: GB/s per SM, %: (0.5, 1.4)
+[slide 7] allreduce round-synchronous 1024 B Recursive doubling: GB/s per SM, %: (1.5, 4.4)
+[slide 7] allreduce round-synchronous 4096 B Recursive doubling: GB/s per SM, %: (4.8, 13.7)
+[slide 7] allreduce round-synchronous 16384 B Rabenseifner: GB/s per SM, %: (6.0, 17.1)
+[slide 7] allreduce round-synchronous 65536 B Rabenseifner: GB/s per SM, %: (13.0, 37.4)
+[slide 7] allreduce single-exchange 256 B Replicated direct push: GB/s per SM, %: (1.9, 5.6)
+[slide 7] allreduce single-exchange 1024 B Pull RS + push AG: GB/s per SM, %: (2.6, 7.6)
+[slide 7] allreduce single-exchange 4096 B Pull RS + push AG: GB/s per SM, %: (6.7, 19.3)
+[slide 7] allreduce single-exchange 16384 B Pull RS + push AG: GB/s per SM, %: (10.5, 30.1)
+[slide 7] allreduce single-exchange 65536 B Pull RS + push AG: GB/s per SM, %: (12.3, 35.2)
+[slide 7] alltoall mbarrier-only 256 B Direct push: GB/s per SM, %: (1.0, 3.0)
+[slide 7] alltoall mbarrier-only 1024 B Direct push: GB/s per SM, %: (2.1, 6.2)
+[slide 7] alltoall mbarrier-only 4096 B Direct push: GB/s per SM, %: (8.6, 24.7)
+[slide 7] alltoall mbarrier-only 16384 B Direct push: GB/s per SM, %: (23.8, 68.2)
+[slide 7] alltoall mbarrier-only 65536 B Direct push: GB/s per SM, %: (30.1, 86.3)
+[slide 7] alltoall round-synchronous 256 B Pairwise XOR: GB/s per SM, %: (0.1, 0.4)
+[slide 7] alltoall round-synchronous 1024 B Bruck: GB/s per SM, %: (0.4, 1.2)
+[slide 7] alltoall round-synchronous 4096 B Pairwise XOR: GB/s per SM, %: (0.9, 2.7)
+[slide 7] alltoall round-synchronous 16384 B Pairwise XOR: GB/s per SM, %: (3.4, 9.8)
+[slide 7] alltoall round-synchronous 65536 B Pairwise XOR: GB/s per SM, %: (10.0, 28.7)
+[slide 7] alltoall single-exchange 256 B Direct pull: GB/s per SM, %: (0.3, 0.7)
+[slide 7] alltoall single-exchange 1024 B Direct pull: GB/s per SM, %: (0.9, 2.5)
+[slide 7] alltoall single-exchange 4096 B Direct pull: GB/s per SM, %: (3.2, 9.1)
+[slide 7] alltoall single-exchange 16384 B Direct pull: GB/s per SM, %: (7.0, 20.2)
+[slide 7] alltoall single-exchange 65536 B Direct pull: GB/s per SM, %: (9.5, 27.3)
+[slide 7] reducescatter mbarrier-only 256 B Direct push: GB/s per SM, %: (1.0, 2.8)
+[slide 7] reducescatter mbarrier-only 1024 B Direct push: GB/s per SM, %: (2.0, 5.6)
+[slide 7] reducescatter mbarrier-only 4096 B Direct push: GB/s per SM, %: (7.5, 21.5)
+[slide 7] reducescatter mbarrier-only 16384 B Direct push: GB/s per SM, %: (18.2, 52.1)
+[slide 7] reducescatter mbarrier-only 65536 B Direct push: GB/s per SM, %: (22.1, 63.2)
+[slide 7] reducescatter round-synchronous 256 B Recursive halving: GB/s per SM, %: (0.1, 0.4)
+[slide 7] reducescatter round-synchronous 1024 B Recursive halving: GB/s per SM, %: (0.6, 1.6)
+[slide 7] reducescatter round-synchronous 4096 B Recursive halving: GB/s per SM, %: (1.7, 4.9)
+[slide 7] reducescatter round-synchronous 16384 B Recursive halving: GB/s per SM, %: (5.6, 16.0)
+[slide 7] reducescatter round-synchronous 65536 B Recursive halving: GB/s per SM, %: (10.9, 31.1)
+[slide 7] reducescatter single-exchange 256 B Direct pull: GB/s per SM, %: (0.1, 0.3)
+[slide 7] reducescatter single-exchange 1024 B Direct pull: GB/s per SM, %: (0.5, 1.4)
+[slide 7] reducescatter single-exchange 4096 B Direct pull: GB/s per SM, %: (1.6, 4.5)
+[slide 7] reducescatter single-exchange 16384 B Direct pull: GB/s per SM, %: (5.9, 16.8)
+[slide 7] reducescatter single-exchange 65536 B Direct pull: GB/s per SM, %: (13.0, 37.3)
+[slide 8] shares (%) vs N at 4 KiB: 
+                                 cycles  cluster barrier  hand-off  further copy commands  payload at 21.3 B/cycle  remote loads  local reduce/copy + fences  unattributed
+collective                   N                                                                                                                                            
+AlltoAll direct push         2      402                0        45                      0                       24             0                           0            31
+                             4      436                0        41                     30                        3             0                           0            26
+                             8      658                0        27                     59                        0             0                           0            13
+                             16    1136                0        16                     80                        0             0                           0             4
+AllReduce one-shot pull      2     1746               65         0                      0                        0            14                           0            21
+                             4     2657               41         0                      0                        0            24                           0            35
+                             8     5052               23         0                      0                        0            28                           0            49
+                             16    9417               13         0                      0                        0            33                           0            55
+AllReduce recursive doubling 2     1388               41        13                      0                       14             0                          17            15
+                             4     2513               43        14                      0                       15             0                          19             8
+                             8     4196               41        13                      0                       14             0                          17            15
+                             16    5749               42        13                      0                       13             0                          17            16
+AllGather ring               2      897               63        20                      0                       11             0                           0             6
+                             4     2273               70        23                      0                        6             0                           0             0
+                             8     6105               67        21                      0                        3             0                           0            10
+                             16   13118               69        21                      0                        1             0                           0             9
+AllReduce ring               2     2017               56        18                      0                       10             0                           6            10
+                             4     5100               64        21                      0                        6             0                           4             5
+                             8    12797               63        20                      0                        3             0                           3            11
+                             16   28657               63        19                      0                        1             0                           3            14
+AllReduce two-shot push      2      836                0        43                      0                       23             0                          18            16
+                             4      969                0        37                     27                        3             0                          11            22
+                             8     1480                0        24                     53                        0             0                           7            16
+                             16    2314                0        16                     79                        0             0                           4             1
+[slide 8] shares (%) vs message size at N = 8: 
+                                      cycles  cluster barrier  hand-off  further copy commands  payload at 21.3 B/cycle  remote loads  local reduce/copy + fences  unattributed
+collective                   payload                                                                                                                                           
+AlltoAll direct push         256 B       686                0        26                     57                        0             0                           0            17
+                             4 KiB       658                0        27                     59                        0             0                           0            13
+                             64 KiB     3088                0         6                     13                       74             0                           0             7
+AllReduce one-shot pull      256 B      3200               36         0                      0                        0            45                           0            19
+                             4 KiB      5052               23         0                      0                        0            28                           0            49
+                             64 KiB    40078                3         0                      0                        0            57                           0            40
+AllReduce recursive doubling 256 B      2649               66        20                      0                        1             0                           6             7
+                             4 KiB      4196               41        13                      0                       14             0                          17            15
+                             64 KiB    22798                8         2                      0                       40             0                          48             1
+AllGather ring               256 B      5966               68        21                      0                        0             0                           0            11
+                             4 KiB      6105               67        21                      0                        3             0                           0            10
+                             64 KiB     7748               51        16                      0                       34             0                           0             0
+AllReduce ring               256 B     10705               74        23                      0                        0             0                           3             0
+                             4 KiB     12797               63        20                      0                        3             0                           3            11
+                             64 KiB    21623               38        12                      0                       25             0                          15            11
+AllReduce two-shot push      256 B      1382                0        26                     56                        0             0                           5            12
+                             4 KiB      1480                0        24                     53                        0             0                           7            16
+                             64 KiB     7403                0         5                     11                       62             0                          12            11
+
+| Collective | Algorithm | Origin | Synchronization | Rounds | Transport |
+|---|---|---|---|---|---|
+| AllReduce | 2-D mesh | generic | mbarrier-only | 3 | bulk copy |
+| AllReduce | Two-shot push | TensorRT-LLM | mbarrier-only | 2 | bulk copy |
+| AllReduce | Atomic all-push | generic | single-exchange | 1 | remote atomic |
+| AllReduce | One-shot pull | TensorRT-LLM | single-exchange | 1 | remote load |
+| AllReduce | Pull RS + push AG | hpc-ops | single-exchange | 1 | remote load/store |
+| AllReduce | Replicated direct push | CREDIT | single-exchange | 1 | remote store |
+| AllReduce | Binomial reduce + broadcast | MPICH | round-synchronous | 2·log₂N | bulk copy |
+| AllReduce | Rabenseifner | MPICH | round-synchronous | 2·log₂N | bulk copy |
+| AllReduce | Recursive doubling | ClusterFusion | round-synchronous | log₂N | bulk copy |
+| AllReduce | Ring (RS + AG) | NCCL | round-synchronous | 2(N−1) | bulk copy |
+| AllReduce | Shift-accumulate (atomic) | ClusterFusion | round-synchronous | N−2 | remote atomic |
+| AllReduce | Shift-accumulate (bulk) | ClusterFusion | round-synchronous | N−2 | bulk copy |
+| AllGather | Direct pull | generic | single-exchange | 1 | remote load |
+| AllGather | Direct push | CREDIT | single-exchange | 1 | remote store |
+| AllGather | Binomial gather + broadcast | MPICH | round-synchronous | 2·log₂N | bulk copy |
+| AllGather | Bruck | MPICH | round-synchronous | ⌈log₂N⌉ | bulk copy |
+| AllGather | Direct shift | ClusterFusion | round-synchronous | N−1 | bulk copy |
+| AllGather | Recursive doubling | ClusterFusion | round-synchronous | log₂N | bulk copy |
+| AllGather | Ring | NCCL | round-synchronous | N−1 | bulk copy |
+| ReduceScatter | Direct push | generic | mbarrier-only | 1 | bulk copy |
+| ReduceScatter | Direct pull | generic | single-exchange | 1 | remote load |
+| ReduceScatter | Recursive halving | MPICH | round-synchronous | log₂N | bulk copy |
+| ReduceScatter | Ring | NCCL | round-synchronous | N−1 | bulk copy |
+| AlltoAll | Direct push | generic | mbarrier-only | 1 | bulk copy |
+| AlltoAll | Pairwise exchange | FlashAttention-4 | mbarrier-only | 1 (N = 2 only) | bulk copy |
+| AlltoAll | Direct pull | generic | single-exchange | 1 | remote load |
+| AlltoAll | Bruck | MPICH | round-synchronous | log₂N | bulk copy |
+| AlltoAll | Pairwise XOR | MPICH | round-synchronous | N−1 | bulk copy |
+| AlltoAll | Shift | generic | round-synchronous | N−1 | bulk copy |

@@ -1,0 +1,30 @@
+Collective,Algorithm,Origin,Synchronization,Rounds,Transport
+AllReduce,2-D mesh,generic,mbarrier-only,3,bulk copy
+AllReduce,Two-shot push,TensorRT-LLM,mbarrier-only,2,bulk copy
+AllReduce,Atomic all-push,generic,single-exchange,1,remote atomic
+AllReduce,One-shot pull,TensorRT-LLM,single-exchange,1,remote load
+AllReduce,Pull RS + push AG,hpc-ops,single-exchange,1,remote load/store
+AllReduce,Replicated direct push,CREDIT,single-exchange,1,remote store
+AllReduce,Binomial reduce + broadcast,MPICH,round-synchronous,2·log₂N,bulk copy
+AllReduce,Rabenseifner,MPICH,round-synchronous,2·log₂N,bulk copy
+AllReduce,Recursive doubling,ClusterFusion,round-synchronous,log₂N,bulk copy
+AllReduce,Ring (RS + AG),NCCL,round-synchronous,2(N−1),bulk copy
+AllReduce,Shift-accumulate (atomic),ClusterFusion,round-synchronous,N−2,remote atomic
+AllReduce,Shift-accumulate (bulk),ClusterFusion,round-synchronous,N−2,bulk copy
+AllGather,Direct pull,generic,single-exchange,1,remote load
+AllGather,Direct push,CREDIT,single-exchange,1,remote store
+AllGather,Binomial gather + broadcast,MPICH,round-synchronous,2·log₂N,bulk copy
+AllGather,Bruck,MPICH,round-synchronous,⌈log₂N⌉,bulk copy
+AllGather,Direct shift,ClusterFusion,round-synchronous,N−1,bulk copy
+AllGather,Recursive doubling,ClusterFusion,round-synchronous,log₂N,bulk copy
+AllGather,Ring,NCCL,round-synchronous,N−1,bulk copy
+ReduceScatter,Direct push,generic,mbarrier-only,1,bulk copy
+ReduceScatter,Direct pull,generic,single-exchange,1,remote load
+ReduceScatter,Recursive halving,MPICH,round-synchronous,log₂N,bulk copy
+ReduceScatter,Ring,NCCL,round-synchronous,N−1,bulk copy
+AlltoAll,Direct push,generic,mbarrier-only,1,bulk copy
+AlltoAll,Pairwise exchange,FlashAttention-4,mbarrier-only,1 (N = 2 only),bulk copy
+AlltoAll,Direct pull,generic,single-exchange,1,remote load
+AlltoAll,Bruck,MPICH,round-synchronous,log₂N,bulk copy
+AlltoAll,Pairwise XOR,MPICH,round-synchronous,N−1,bulk copy
+AlltoAll,Shift,generic,round-synchronous,N−1,bulk copy
