@@ -49,6 +49,10 @@ def bar_labels(ax, rects, fmt="{:.0f}", horizontal=False, pad=3, size=10.5):
 
 
 # =============================================================================================== slide 1
+MEM_LEGEND = [Patch(color=S.GREY, label="LSU load / store"), Patch(color=S.ORANGE, label="DSMEM"),
+              Patch(color=S.BLUE, label="TMA (bulk copy)")]
+
+
 def mem_latency():
     a = A.facts()
     rows = [("SMEM", a["lat_smem_cycles"], S.GREY), ("L1", a["lat_l1_cycles"], S.GREY),
@@ -69,6 +73,7 @@ def mem_latency():
     ax.grid(axis="x", visible=True)
     ax.set_xlim(0, 780)
     ax.set_xlabel("Latency (cycles)")
+    f.legend(handles=MEM_LEGEND, loc="outside upper center", ncol=3, fontsize=10.5)
     for r in rows:
         note(1, f"latency {r[0]}", round(r[1], 1))
     note(1, "plain ld.global chase L2 / HBM", (a["lat_l2_chase_cycles"], a["lat_hbm_chase_cycles"]))
@@ -128,6 +133,7 @@ def mem_bandwidth():
     a2.grid(axis="x", visible=True)
     a2.set_xlim(0, 250)
     a2.set_xlabel("Bandwidth of one SM (GB/s)")
+    f.legend(handles=MEM_LEGEND, loc="outside upper center", ncol=3, fontsize=10.5)
     for lab, v, _ in agg:
         note(1, f"aggregate {lab} TB/s", round(v, 2))
     note(1, "aggregate DSMEM TB/s range", (dmin, dmax))
