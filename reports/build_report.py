@@ -179,13 +179,13 @@ md(r"""
 """)
 code("A.fig_tma_issue();")
 md(r"""
-**(a) Issuing copies from global memory.** One warp issues one copy every 48 cycles. Two warps reach 24 cycles per copy and four warps 14, until the engine's 128 B/cycle limit sets in (32 cycles per 4-KiB copy). The data source (L2 or HBM) does not change the issue rate, and more than 50 copies can be outstanding without a stall.
+**(a) Issuing copies from global memory to shared memory.** *Issuing* is the issuing thread handing a command to the TMA, like putting it in a queue; the TMA then moves the data while the thread continues. One warp issues one copy every 48 cycles. Two warps reach 24 cycles per copy and four warps 14, until the engine's 128 B/cycle limit sets in (32 cycles per 4-KiB copy). The data source (L2 or HBM) does not change the issue rate, and more than 50 copies can be outstanding without a stall.
 
-**(b) Shared → shared copies (TMA puts into another CTA).** Up to 1 KiB a command is limited by its issue cost of about 66 cycles: 128 B commands deliver only 1.95 B/cycle, 1 KiB commands 15.3. **From 2 KiB on, a put saturates the 21.3 B/cycle network limit.** The reducing variant (`cp.reduce.async.bulk … .add.u32`) tops out at about 17 B/cycle.
+**(b) Shared → shared copies (TMA puts into another CTA), issued back to back by one thread; each point is a separate run with one command size.** Every put command occupies about 66 cycles, whatever its size, before the next one can start; our data cannot tell whether those cycles are spent by the issuing thread or by the TMA's command handling. Handling the next command overlaps with moving the current command's bytes, so the two stages form a pipeline and the slower one sets the rate: **rate = bytes ÷ max(66, bytes ÷ 21.3)**. Below about 1.4 KiB (66 × 21.3) the per-command cost is the bottleneck: 128-B commands deliver 1.95 B/cycle and 1-KiB commands 15.3–15.7, although the network could carry a 1-KiB command in 48 cycles. **From 2 KiB on, a put saturates the 21.3 B/cycle network limit.** The reducing variant (`cp.reduce.async.bulk … .add.u32`) tops out at about 17 B/cycle.
 
 **What this means for DSMEM kernels.**
 - Make DSMEM bulk messages at least 2 KiB, or batch several small messages per command.
-- A thread that issues one command per destination pays about 66 cycles per destination before the last one leaves. Section 5 shows this is the main cost of fan-out collectives at 8–16 CTAs. Spread fan-out across warps (four warps issue 3.4× faster).
+- A thread that issues one put per destination spends about 66 cycles per destination before the last one leaves. Section 5 shows this is the main cost of fan-out collectives at 8–16 CTAs. Spread fan-out across warps (four warps issue 3.4× faster).
 - Use reduce-puts when they remove a local reduction pass, but count on 17 B/cycle, not 21.3.
 """)
 
@@ -198,7 +198,7 @@ Producers and consumers need two things: *ordering* (the consumer must see the p
 - **CTA scope.** `__syncthreads()` (`bar.sync`): all threads of one block.
 - **mbarrier.** A 64-bit object in shared memory with an arrival count and a transaction-byte count. Arrivals and byte completions can come from local threads, remote CTAs or the TMA; waiters poll `try_wait`. It is the completion mechanism of TMA, `st.async` and `red.async`.
 - **Cluster barrier.** `barrier.cluster.arrive` + `barrier.cluster.wait` (`cluster.sync()` does both): all threads of all CTAs of the cluster. The default `arrive` has *release* semantics and `wait` *acquire*, so writes before the barrier are visible after it. `arrive.relaxed` only synchronises, without ordering memory.
-- **Fences.** `fence.acq_rel.{cta,cluster,gpu}` order memory; `fence.proxy.async` orders ordinary shared-memory writes with the TMA (the "async proxy"), needed before a bulk copy reads data that threads just wrote.
+- **Fences.** `fence.acq_rel.{cta,cluster,gpu}` order memory; `fence.proxy.async.shared::cta` orders ordinary shared-memory writes with the TMA (the "async proxy"), needed before a bulk copy reads data that threads just wrote. Without the state space, `fence.proxy.async` also orders global memory and is compiled with a GPU-scope memory barrier.
 - **Flags.** A store with release semantics and a polling load with acquire semantics, in shared or global memory.
 
 ### How we measured
@@ -210,7 +210,7 @@ md(r"""
 - **Every release costs a GPU-scope fence**, whatever its nominal scope. A release `arrive`, `st.release.cluster`, `fence.acq_rel.cluster` and `__threadfence()` all compile to the same `MEMBAR.ALL.GPU` sequence; there is no cheaper cluster-scope fence on this chip. It costs 265–284 cycles if the thread made no store since the last fence, and **520–630 cycles if it did** (any store since the last fence, however long ago).
 - **Ordering, not rendezvous, is what costs in a cluster barrier.** A relaxed arrive costs 22 cycles and the wait, once everybody has arrived, 23. A full `cluster.sync()` costs 328–354 cycles with up to 128 threads per CTA, 486–519 with 512 and about 700 with 1024: the release arrive scales with the threads that execute it.
 - **mbarrier operations are cheap.** `init` 32, `arrive` 29, `arrive.expect_tx` 38, `try_wait` on a completed phase 39 cycles. A waiting thread notices completion 63–189 cycles after it happens.
-- `fence.proxy.async` costs 141–287 cycles (more threads, more cost).
+- **Scope the proxy fence.** `fence.proxy.async.shared::cta` compiles to a CTA-scope barrier plus the proxy fence and costs 8–33 cycles. The unscoped `fence.proxy.async` adds a GPU-scope `MEMBAR` and costs 141–287 cycles. It grows with the threads of the block because every warp executes its own GPU-scope barrier through the same SM memory pipeline; the release arrive of the cluster barrier grows for the same reason (284 → 575).
 - A grid-wide `grid.sync()` costs about 1400 cycles for any number of blocks.
 """)
 code("D.fig_handoff();")
@@ -218,7 +218,9 @@ md(r"""
 **Hand-off between two SMs of a cluster** (round trip, CS 2). The bar colour says what the receiver may assume when it sees the signal.
 - **`st.async` / `red.async` + mbarrier: 565 cycles round trip (≈ 160 ns one way).** This is the cheapest way to hand over *data*: the store carries its own completion, so no fence is needed on either side. The same holds for TMA puts, which complete on the receiver's mbarrier the same way.
 - Signal-only methods are slightly faster (relaxed remote mbarrier arrive 517; polling a peer's flag 512) but order no data.
-- Everything with release semantics pays the GPU fence of the previous figure. A release remote arrive takes 953 cycles, a release/acquire flag 1325, and a flag in global memory 1962–2126 (more when its L2 home is in the other partition).
+- Everything with release semantics pays the GPU fence of the previous figure. A release remote arrive takes 953 cycles.
+- **Release/acquire flag in shared memory (1325 round trip).** SM A writes its data with ordinary stores, then stores the flag into SM B's shared memory with `st.release.cluster`. "Release" guarantees that A's earlier writes are visible before the flag is, which costs A a GPU-scope fence. B spins on its own flag with `ld.acquire.cluster`; "acquire" guarantees that once B sees the flag, its later reads see A's data. B answers the same way.
+- **The same protocol in global memory (1962–2126 round trip).** Each direction uses its own flag word in global memory (`st.release.gpu` / `ld.acquire.gpu`), so every store and poll goes through L2: 1962 cycles when the flags' home L2 partition is the pair's own, 2126 when it is the other partition.
 - Polling hand-offs are fragile. The plain-store + poll round trip measured 410–800 cycles in different kernels with the same instruction sequence, depending on how the compiler laid out the poll loop. mbarrier-based hand-offs stayed within 530–619 in every kernel and were the same for every SM pair of the chip (265.5 cycles one way).
 
 **What this means.**
@@ -265,7 +267,7 @@ For one fixed rank (rank 0; SM 0 for N = 4–8, SM 124 for N = 2, SM 2 for N = 1
 | each further copy command issued by the same thread | 65 |
 | payload streamed at the 21.3 B/cycle send limit (only the part not hidden behind command issue) | bytes / 21.3 |
 | remote loads of the thread's own chain (pull algorithms) | 200 each (37 to its own CTA) |
-| local reduce or copy in shared memory (+ `fence.proxy.async`, `__syncthreads`) | per element pass: 33 + bytes moved / 128; fence 157 |
+| local reduce or copy in shared memory (+ `fence.proxy.async.shared::cta`, `__syncthreads`) | per element pass: 33 + bytes moved / 128; fence 10; `__syncthreads` 24 |
 
 What the isolated costs do not explain remains as a hatched **unattributed** segment: time spent waiting for a slower peer (skew), contention, and first-use effects. When the isolated costs add up to more than the measurement (some steps overlap in reality), the excess is shown faded above the measured line.
 """)
@@ -273,9 +275,9 @@ code("C.fig_breakdown_rounds();")
 md(r"""
 **(a) Ring AllReduce, N = 8, 4 KiB, round by round.**
 - Each of the 14 rounds costs 860–1030 cycles, and **580 of them (56–68 %) are the cluster barrier**. The hand-off adds 181 cycles; the 512-byte message itself only 24.
-- The seven reduce-scatter rounds add the local reduction and the `fence.proxy.async` that makes the reduced chunk visible to the next bulk copy (≈ 200 cycles). They are about 90 cycles slower than the all-gather rounds.
+- The seven reduce-scatter rounds add the local reduction and the `fence.proxy.async.shared::cta` that makes the reduced chunk visible to the next bulk copy. Both together are priced at only 55 cycles, but these rounds are about 90 cycles slower than the all-gather rounds.
 - The first round is the slowest (1032): ranks enter the collective with some skew.
-- The modelled costs explain the measurement within −50…+95 cycles per round.
+- What the isolated costs do not explain is 71–94 cycles per all-gather round and 95–132 per reduce-scatter round (191 in the first): the wait for the slowest peer to leave the previous barrier and to finish its own reduction.
 
 **(b) Algorithms with few rounds.**
 - *Recursive doubling* has the same structure as the ring with three rounds instead of 14, each moving the whole 4 KiB, so each round streams 192 cycles of payload and reduces 1024 elements.
@@ -287,16 +289,16 @@ code("C.share_table('N')")
 md(r"""
 **Varying the cluster size at 4 KiB per CTA** (whole collective, rank 0; the table gives the shares in %):
 - **Ring AllReduce and ring AllGather grow linearly with N, and 56–70 % of their time is cluster barriers.** The ring's 2(N−1) rounds each pay a 580-cycle barrier. At N = 16 that is 30 barriers or about 18,000 cycles: 7.8× the entire two-shot AllReduce of the same size.
-- **Recursive doubling** needs only log₂N rounds. Its time is spread over barrier (41 %), local reduce + fence (28 %), payload (14 %) and hand-off (13 %).
+- **Recursive doubling** needs only log₂N rounds. Its time is spread over barrier (41 %), local reduce + fence (17 %), payload (14 %), hand-off (13 %) and waiting (15 %).
 - **Two-shot push and direct-push AlltoAll** grow with N because one thread issues N−1 copy commands per phase: at N = 16 the command issue is **75–80 % of their time**. This is the term to attack, by spreading the commands of one CTA over several warps or by letting several CTAs forward.
 - **One-shot pull** is dominated by remote-load chains and unattributed waiting (49–55 % at N ≥ 8). Its loads go one at a time per thread (each thread reads the N peers in sequence), far below the 8 KiB in flight that DSMEM loads need.
 """)
 code("C.fig_breakdown_totals('payload');")
 code("C.share_table('payload')")
 md(r"""
-**Varying the payload at N = 8.** Up to 4 KiB per CTA the breakdown does not change: the payload term stays below 3 % for every push algorithm. It becomes visible at 16 KiB and dominates the mbarrier-only algorithms at 64 KiB (62–74 %). For barrier-based algorithms at 64 KiB, synchronisation still takes 38–51 % in the ring. Recursive doubling, which sends the whole buffer every round, becomes reduction- and transfer-bound (90 %).
+**Varying the payload at N = 8.** Up to 4 KiB per CTA the breakdown does not change: the payload term stays below 3 % for every push algorithm. It becomes visible at 16 KiB and dominates the mbarrier-only algorithms at 64 KiB (62–74 %). For barrier-based algorithms at 64 KiB, synchronisation still takes 38–51 % in the ring. Recursive doubling, which sends the whole buffer every round, becomes reduction- and transfer-bound (88 %).
 
-**How well do the isolated costs explain the measurements?** Over all payloads and cluster sizes, the composed costs reproduce a median of 94–98 % of rank 0's measured time for the ring, recursive doubling and two-shot algorithms. They reproduce 75 % for the direct-push AlltoAll, where the smallest clusters pay about 110 cycles of first-use cost after the entry barrier, and 63 % for the pull AllReduce, whose unattributed share is contention among simultaneous readers.
+**How well do the isolated costs explain the measurements?** Over all payloads and cluster sizes, the composed costs reproduce a median of 85–94 % of rank 0's measured time for the ring AllReduce and AllGather, recursive doubling and two-shot algorithms. They reproduce 75 % for the direct-push AlltoAll, where the smallest clusters pay about 110 cycles of first-use cost after the entry barrier, and 63 % for the pull AllReduce, whose unattributed share is contention among simultaneous readers.
 """)
 code("C.fig_coll_bandwidth();")
 md(r"""

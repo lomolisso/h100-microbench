@@ -520,7 +520,8 @@ def fig_sync_costs():
         ("mbarrier", "arrive.expect_tx", g("k3/mbar_arrive_expect_tx/single", "cs 0, threads 1"), None, None, None),
         ("mbarrier", "try_wait, phase done", g("k3/mbar_try_wait/complete", "cs 0, threads 1"), None, None, None),
         ("mbarrier", "wake-up after completion", None, None, None, (wake.min(), wake.max())),
-        ("mbarrier", "fence.proxy.async", g("k1/fence_proxy_async/single", w1), g("k1/fence_proxy_async/single", wT), None, None),
+        ("mbarrier", "fence.proxy.async.shared::cta", g("k1/fence_proxy_async_shared_cta/single", w1), g("k1/fence_proxy_async_shared_cta/single", wT), None, None),
+        ("mbarrier", "fence.proxy.async (all spaces)", g("k1/fence_proxy_async/single", w1), g("k1/fence_proxy_async/single", wT), None, None),
         ("cluster", "arrive.relaxed", g("k2/cluster_arrive_relaxed/single", c16), g("k2/cluster_arrive_relaxed/single", c16T), None, None),
         ("cluster", "wait, all arrived", g("k2/cluster_wait_acquire/all_arrived", c16), g("k2/cluster_wait_acquire/all_arrived", c16T), None, None),
         ("cluster", "arrive.release", g("k2/cluster_arrive_release/single", c16), g("k2/cluster_arrive_release/single", c16T), float(np.median(st_after)), None),
@@ -528,7 +529,7 @@ def fig_sync_costs():
         ("GPU", "fence.sc.gpu", g("k1/fence_sc_gpu/single", w1), g("k1/fence_sc_gpu/single", wT), g("k1/fence_sc_gpu/after_st_global", w1), None),
         ("GPU", "grid.sync() (132 CTAs)", None, g("k5/grid_sync/b132", "cs 0, threads 1024"), g("k5/grid_sync/b132_after_st_global", "cs 0, threads 1024"), None),
     ]
-    f, ax = plt.subplots(figsize=(COL, 3.7), constrained_layout=True)
+    f, ax = plt.subplots(figsize=(COL, 3.9), constrained_layout=True)
     y, yt, ylab, gpos = 0, [], [], []
     last = None
     for grp, lab, v1, vT, vs, rg in rows:
@@ -578,6 +579,7 @@ def fig_sync_costs():
     info["fence_sc_gpu_by_threads"] = {t: g("k1/fence_sc_gpu/single", f"cs 1, threads {t}") for t in (32, 128, 512, 1024)}
     info["fence_sc_gpu_after_store_by_threads"] = {t: g("k1/fence_sc_gpu/after_st_global", f"cs 1, threads {t}") for t in (32, 128, 512, 1024)}
     info["fence_proxy_async_by_threads"] = {t: g("k1/fence_proxy_async/single", f"cs 1, threads {t}") for t in (32, 128, 512, 1024)}
+    info["fence_proxy_async_shared_cta_by_threads"] = {t: g("k1/fence_proxy_async_shared_cta/single", f"cs 1, threads {t}") for t in (32, 128, 512, 1024)}
     info["grid_sync"] = {"b1": g("k5/grid_sync/b1", "cs 0, threads 1024"), "b132": g("k5/grid_sync/b132", "cs 0, threads 1024"),
                          "b132_after_store": g("k5/grid_sync/b132_after_st_global", "cs 0, threads 1024")}
     info["mbar_wakeup_range"] = (float(wake.min()), float(wake.max()))

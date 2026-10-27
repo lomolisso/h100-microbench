@@ -76,7 +76,7 @@ COMPONENTS = [                               # stacking order (bottom -> top) an
     ("issue", "further copy commands"),
     ("transfer", "payload at 21.3 B/cycle"),
     ("loads", "remote loads (own chain)"),
-    ("local", "local reduce/copy + proxy fence"),
+    ("local", "local reduce/copy + fences"),
 ]
 
 
@@ -113,7 +113,12 @@ def costs():
         c[("remote_ld", cs)] = float(r["median"].iloc[0])
     c["self_ld"] = float(s09[(s09.level == "k1/ld_cluster/stride1/Default/self") & (s09.config == "cs 2")]["median"].iloc[0])
     c["expect_tx"] = v07("k3/mbar_arrive_expect_tx/single", 0, 1)
-    c["fence_proxy_async"] = _interp(v07("k1/fence_proxy_async/single", 1, 128), v07("k1/fence_proxy_async/single", 1, 512))
+    # the collectives use the CTA-scoped form fence.proxy.async.shared::cta (MEMBAR.ALL.CTA + FENCE.VIEW.ASYNC.S);
+    # the unscoped fence.proxy.async adds a GPU-scope MEMBAR and is kept for reference only
+    c["fence_proxy_async"] = _interp(v07("k1/fence_proxy_async_shared_cta/single", 1, 128),
+                                     v07("k1/fence_proxy_async_shared_cta/single", 1, 512))
+    c["fence_proxy_async_all"] = _interp(v07("k1/fence_proxy_async/single", 1, 128),
+                                         v07("k1/fence_proxy_async/single", 1, 512))
     c["syncthreads"] = _interp(v07("k1/bar_sync0/single", 1, 128, "net_cycles"), v07("k1/bar_sync0/single", 1, 512, "net_cycles"))
     c["handoff_rt_median"] = v07("k4/st_async_mbarrier/push_r01/round_trip_cycles", 2, 1)
     c["handoff_one_way"], c["handoff_slow_step"] = handoff_modes()

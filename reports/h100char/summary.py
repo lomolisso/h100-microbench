@@ -47,32 +47,40 @@ def cheat_sheet():
         "cycles", "2")
     add("latency", "L2 hit, near / far partition", f"{a['lat_l2_near_cycles']:.0f} / {a['lat_l2_far_cycles']:.0f}", "cycles", "1")
     add("latency", "HBM, near / far partition", f"{a['lat_hbm_near_cycles']:.0f} / {a['lat_hbm_far_cycles']:.0f}", "cycles", "1")
-    add("latency", "one TMA bulk copy (issue → mbarrier completion seen)",
-        f"{a['tma_copy_T0_cycles']:.0f} + bytes / {a['tma_copy_bpc']:.0f}", "cycles", "3")
-    add("latency", "DSMEM atomic add.u32 / add.f32", f"load + {d['dsmem_atom_minus_load']:.0f} / {d['dsmem_f32_add_cas']:.0f}",
-        "cycles", "2")
-    add("bandwidth", "shared memory / L1, per SM", f"{a['bw_smem_bpc_per_sm']:.0f}", "B/cycle", "1")
-    add("bandwidth", "DSMEM send limit per SM (ld, st, st.async, TMA put)", f"{d['dsmem_send_limit_bpc']:.2f}", "B/cycle", "2")
+    add("latency", "one TMA bulk copy global → shared (issue → mbarrier completion seen)",
+        f"{a['tma_copy_T0_cycles']:.0f} + (bytes ÷ {a['tma_copy_bpc']:.0f})", "cycles", "3")
+    add("latency", "DSMEM atomic add.u32 (native)",
+        f"remote load + {d['dsmem_atom_minus_load']:.0f} ≈ {a['lat_dsmem_remote_cycles'] + d['dsmem_atom_minus_load']:.0f}", "cycles", "2")
+    add("latency", "DSMEM atomic add.f32 (compiled to a compare-and-swap loop)", f"{d['dsmem_f32_add_cas']:.0f}", "cycles", "2")
+    vis = data.latest(data.read(data.res("10", "10__heatmap__summary.csv"))).set_index("level")["median"]
+    add("latency", "remote store → visible at the peer, one way: plain st + poll / st.async + mbarrier",
+        f"{vis['vis_st_plain/one_way_cycles']:.0f} / {vis['vis_st_async/one_way_cycles']:.0f}", "cycles", "4")
+    add("bandwidth", "shared memory / L1, per SM (loads and stores)", f"{a['bw_smem_bpc_per_sm']:.0f}", "B/cycle", "1")
+    add("bandwidth", "DSMEM send limit: total out of one SM to 1 or many SMs (ld replies, st, st.async, TMA put)",
+        f"{d['dsmem_send_limit_bpc']:.2f}", "B/cycle", "2")
     add("bandwidth", "DSMEM receive, one SM fed by ≥ 3 peers", f"32–{d['dsmem_receive_max_bpc']:.0f}", "B/cycle", "2")
     add("bandwidth", "L2 read, one SM alone / all SMs", f"{a['bw_l2_read_one_sm_bpc']:.0f} / {a['bw_l2_read_bpc_per_sm']:.0f}",
         "B/cycle per SM", "1")
     add("bandwidth", "GPU-wide: L2 read / HBM read / DSMEM", f"{a['bw_l2_read_tbps']:.1f} / {a['bw_hbm_read_tbps']:.2f} / {lo:.1f}–{hi:.1f}",
         "TB/s", "1, 2")
     add("bandwidth", "TMA engine per SM (global → shared)", "128", "B/cycle", "3")
-    add("issue", "TMA copy issue, one warp / four warps", f"{a['tma_issue_1warp_cycles_per_copy']:.0f} / {a['tma_issue_4warps_cycles_per_copy']:.0f}",
-        "cycles per copy", "3")
-    add("issue", "shared → shared TMA command, ≤ 1 KiB (issue-bound)", f"{a['tma_s2s_issue_bound_cycles_per_command']:.0f}",
+    add("issue", "TMA copy global → shared, back to back: one warp / four warps",
+        f"{a['tma_issue_1warp_cycles_per_copy']:.0f} / {a['tma_issue_4warps_cycles_per_copy']:.0f}", "cycles per copy", "3")
+    add("issue", "TMA put shared → shared (other CTA), back to back: fixed cost per command",
+        f"{a['tma_s2s_issue_bound_cycles_per_command']:.0f} (rate = bytes ÷ max({a['tma_s2s_issue_bound_cycles_per_command']:.0f}, bytes ÷ 21.3))",
         "cycles per command", "3")
     add("sync", "__syncthreads (1 / 8 / 32 warps)",
         f"{d['syncthreads_net'][1]:.0f} / {c['syncthreads']:.0f} / {d['syncthreads_net'][32]:.0f}", "cycles", "4")
     add("sync", "mbarrier arrive.expect_tx / try_wait on a completed phase", f"{c['expect_tx']:.0f} / 39", "cycles", "4")
-    add("sync", "fence.proxy.async (256 threads)", f"{c['fence_proxy_async']:.0f}", "cycles", "4")
+    add("sync", "fence.proxy.async.shared::cta / unscoped fence.proxy.async (256 threads)",
+        f"{c['fence_proxy_async']:.0f} / {c['fence_proxy_async_all']:.0f}", "cycles", "4")
     add("sync", "cluster barrier, 256 threads: no prior store / after a store",
         f"{c[('barrier_nostore', 8)]:.0f} / {c[('barrier', 8)]:.0f}", "cycles", "4, 5")
-    add("sync", "hand-off st.async + mbarrier, one way: fast mode / median",
+    add("sync", "one-way hand-off SM A → SM B, st.async + mbarrier: fast mode / median",
         f"{c['handoff_one_way']:.0f} / {B.handoff_hist().pipe(lambda h: h.value[(h['count'].cumsum() / h['count'].sum()) >= 0.5].iloc[0]) / 2:.0f}",
         "cycles", "4, 5")
-    add("sync", "hand-off round trip: st.async / release-acquire flag / global flag",
+    add("sync", "round trip A → B → A: st.async + mbarrier / release-acquire flag in shared memory / "
+        "release-acquire flag in global memory (home near–far)",
         f"{d['handoff_st_async_rt']:.0f} / {d['handoff_release_acquire_rt']:.0f} / {d['handoff_global_flag_rt'][0]:.0f}–{d['handoff_global_flag_rt'][1]:.0f}",
         "cycles", "4")
     add("placement", "max active clusters at 1 CTA/SM, CS 2 / 4 / 8 / 16",
