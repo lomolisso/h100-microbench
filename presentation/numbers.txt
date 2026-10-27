@@ -65,25 +65,25 @@
 [slide 4] global flag, home in other partition: 2126.0
 [slide 6] allgather round-synchronous 256 B -> Bruck: 2561
 [slide 6] allgather round-synchronous 1024 B -> Bruck: 2198
-[slide 6] allgather round-synchronous 4096 B -> Recursive doubling: 2798
+[slide 6] allgather round-synchronous 4096 B -> Bruck: 2810
 [slide 6] allgather round-synchronous 16384 B -> Bruck: 2965
-[slide 6] allgather round-synchronous 65536 B -> Recursive doubling: 5066
+[slide 6] allgather round-synchronous 65536 B -> Bruck: 5069
 [slide 6] allgather single-exchange 256 B -> Direct push: 836
 [slide 6] allgather single-exchange 1024 B -> Direct push: 809
 [slide 6] allgather single-exchange 4096 B -> Direct push: 1143
 [slide 6] allgather single-exchange 16384 B -> Direct push: 2223
 [slide 6] allgather single-exchange 65536 B -> Direct push: 6583
-[slide 6] allreduce mbarrier-only 256 B -> 2-D mesh: 1292
-[slide 6] allreduce mbarrier-only 1024 B -> 2-D mesh: 1306
+[slide 6] allreduce mbarrier-only 256 B -> Two-shot push: 1399
+[slide 6] allreduce mbarrier-only 1024 B -> Two-shot push: 1419
 [slide 6] allreduce mbarrier-only 4096 B -> Two-shot push: 1490
 [slide 6] allreduce mbarrier-only 16384 B -> Two-shot push: 2345
 [slide 6] allreduce mbarrier-only 65536 B -> Two-shot push: 7458
 [slide 6] allreduce round-synchronous 256 B -> Recursive doubling: 2640
 [slide 6] allreduce round-synchronous 1024 B -> Recursive doubling: 3300
 [slide 6] allreduce round-synchronous 4096 B -> Recursive doubling: 4210
-[slide 6] allreduce round-synchronous 16384 B -> Rabenseifner: 7853
-[slide 6] allreduce round-synchronous 65536 B -> Rabenseifner: 14387
-[slide 6] allreduce single-exchange 256 B -> Replicated direct push: 1508
+[slide 6] allreduce round-synchronous 16384 B -> Recursive doubling: 7980
+[slide 6] allreduce round-synchronous 65536 B -> Recursive doubling: 22813
+[slide 6] allreduce single-exchange 256 B -> Pull RS + push AG: 1659
 [slide 6] allreduce single-exchange 1024 B -> Pull RS + push AG: 2215
 [slide 6] allreduce single-exchange 4096 B -> Pull RS + push AG: 3478
 [slide 6] allreduce single-exchange 16384 B -> Pull RS + push AG: 8932
@@ -94,7 +94,7 @@
 [slide 6] alltoall mbarrier-only 16384 B -> Direct push: 985
 [slide 6] alltoall mbarrier-only 65536 B -> Direct push: 3114
 [slide 6] alltoall round-synchronous 256 B -> Pairwise XOR: 5123
-[slide 6] alltoall round-synchronous 1024 B -> Bruck: 6128
+[slide 6] alltoall round-synchronous 1024 B -> Pairwise XOR: 6185
 [slide 6] alltoall round-synchronous 4096 B -> Pairwise XOR: 6248
 [slide 6] alltoall round-synchronous 16384 B -> Pairwise XOR: 6844
 [slide 6] alltoall round-synchronous 65536 B -> Pairwise XOR: 9380
@@ -118,30 +118,30 @@
 [slide 6] reducescatter single-exchange 4096 B -> Direct pull: 3697
 [slide 6] reducescatter single-exchange 16384 B -> Direct pull: 3996
 [slide 6] reducescatter single-exchange 65536 B -> Direct pull: 7203
-[slide 6] allreduce: (fastest with cluster barriers) / mbarrier-only: {256: 1.17, 1024: 1.7, 4096: 2.33, 16384: 3.35, 65536: 1.93}
+[slide 6] allreduce: (fastest with cluster barriers) / mbarrier-only: {256: 1.19, 1024: 1.56, 4096: 2.33, 16384: 3.4, 65536: 3.06}
 [slide 6] reducescatter: (fastest with cluster barriers) / mbarrier-only: {256: 4.04, 1024: 3.46, 4096: 4.41, 16384: 3.1, 65536: 1.69}
 [slide 6] alltoall: (fastest with cluster barriers) / mbarrier-only: {256: 2.05, 1024: 2.51, 4096: 2.7, 16384: 3.38, 65536: 3.01}
 [slide 7] allgather round-synchronous 256 B Bruck: GB/s per SM, %: (0.2, 0.5)
 [slide 7] allgather round-synchronous 1024 B Bruck: GB/s per SM, %: (0.7, 1.9)
-[slide 7] allgather round-synchronous 4096 B Recursive doubling: GB/s per SM, %: (2.1, 6.0)
+[slide 7] allgather round-synchronous 4096 B Bruck: GB/s per SM, %: (2.1, 6.0)
 [slide 7] allgather round-synchronous 16384 B Bruck: GB/s per SM, %: (7.9, 22.7)
-[slide 7] allgather round-synchronous 65536 B Recursive doubling: GB/s per SM, %: (18.5, 53.1)
+[slide 7] allgather round-synchronous 65536 B Bruck: GB/s per SM, %: (18.5, 53.0)
 [slide 7] allgather single-exchange 256 B Direct push: GB/s per SM, %: (0.9, 2.5)
 [slide 7] allgather single-exchange 1024 B Direct push: GB/s per SM, %: (1.8, 5.2)
 [slide 7] allgather single-exchange 4096 B Direct push: GB/s per SM, %: (5.1, 14.7)
 [slide 7] allgather single-exchange 16384 B Direct push: GB/s per SM, %: (10.5, 30.2)
 [slide 7] allgather single-exchange 65536 B Direct push: GB/s per SM, %: (14.2, 40.8)
-[slide 7] allreduce mbarrier-only 256 B 2-D mesh: GB/s per SM, %: (0.6, 1.6)
-[slide 7] allreduce mbarrier-only 1024 B 2-D mesh: GB/s per SM, %: (2.2, 6.4)
+[slide 7] allreduce mbarrier-only 256 B Two-shot push: GB/s per SM, %: (1.0, 3.0)
+[slide 7] allreduce mbarrier-only 1024 B Two-shot push: GB/s per SM, %: (2.1, 5.9)
 [slide 7] allreduce mbarrier-only 4096 B Two-shot push: GB/s per SM, %: (7.9, 22.5)
 [slide 7] allreduce mbarrier-only 16384 B Two-shot push: GB/s per SM, %: (20.0, 57.3)
 [slide 7] allreduce mbarrier-only 65536 B Two-shot push: GB/s per SM, %: (25.1, 72.1)
 [slide 7] allreduce round-synchronous 256 B Recursive doubling: GB/s per SM, %: (0.5, 1.4)
 [slide 7] allreduce round-synchronous 1024 B Recursive doubling: GB/s per SM, %: (1.5, 4.4)
 [slide 7] allreduce round-synchronous 4096 B Recursive doubling: GB/s per SM, %: (4.8, 13.7)
-[slide 7] allreduce round-synchronous 16384 B Rabenseifner: GB/s per SM, %: (6.0, 17.1)
-[slide 7] allreduce round-synchronous 65536 B Rabenseifner: GB/s per SM, %: (13.0, 37.4)
-[slide 7] allreduce single-exchange 256 B Replicated direct push: GB/s per SM, %: (1.9, 5.6)
+[slide 7] allreduce round-synchronous 16384 B Recursive doubling: GB/s per SM, %: (10.1, 28.9)
+[slide 7] allreduce round-synchronous 65536 B Recursive doubling: GB/s per SM, %: (14.1, 40.4)
+[slide 7] allreduce single-exchange 256 B Pull RS + push AG: GB/s per SM, %: (0.9, 2.5)
 [slide 7] allreduce single-exchange 1024 B Pull RS + push AG: GB/s per SM, %: (2.6, 7.6)
 [slide 7] allreduce single-exchange 4096 B Pull RS + push AG: GB/s per SM, %: (6.7, 19.3)
 [slide 7] allreduce single-exchange 16384 B Pull RS + push AG: GB/s per SM, %: (10.5, 30.1)
@@ -152,7 +152,7 @@
 [slide 7] alltoall mbarrier-only 16384 B Direct push: GB/s per SM, %: (23.8, 68.2)
 [slide 7] alltoall mbarrier-only 65536 B Direct push: GB/s per SM, %: (30.1, 86.3)
 [slide 7] alltoall round-synchronous 256 B Pairwise XOR: GB/s per SM, %: (0.1, 0.4)
-[slide 7] alltoall round-synchronous 1024 B Bruck: GB/s per SM, %: (0.4, 1.2)
+[slide 7] alltoall round-synchronous 1024 B Pairwise XOR: GB/s per SM, %: (0.2, 0.7)
 [slide 7] alltoall round-synchronous 4096 B Pairwise XOR: GB/s per SM, %: (0.9, 2.7)
 [slide 7] alltoall round-synchronous 16384 B Pairwise XOR: GB/s per SM, %: (3.4, 9.8)
 [slide 7] alltoall round-synchronous 65536 B Pairwise XOR: GB/s per SM, %: (10.0, 28.7)

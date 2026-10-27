@@ -88,7 +88,7 @@ Synchronization taxonomy:
 ---
 
 ## 6. Collective latency (N = 8)
-Figure: `coll_latency.png` — per class, the lowest-latency algorithm at each message size (glyph → algorithm)
+Figure: `coll_latency.png` — one line per synchronization class: the class's algorithm with the lowest latency across message sizes (geometric mean); name at the end of each line
 
 - **mbarrier-only** algorithms have the lowest latency: **1.2–4.4×** below any algorithm with cluster barriers
 - Latency is nearly constant up to 4 KiB: **680–1490 cycles** (mbarrier-only)
@@ -97,7 +97,7 @@ Figure: `coll_latency.png` — per class, the lowest-latency algorithm at each m
 ---
 
 ## 7. Per-SM bandwidth utilization (N = 8)
-Figure: `coll_utilization.png` — measured DSMEM bytes per SM ÷ latency, as % of the 34.9 GB/s injection bandwidth
+Figure: `coll_utilization.png` — same algorithms; measured DSMEM bytes per SM ÷ latency, as % of the 34.9 GB/s injection bandwidth
 
 - ≤ 4 KiB: **≤ 25 %** of the per-SM injection bandwidth for every algorithm
 - 64 KiB: **63–86 %** (mbarrier-only), **27–53 %** (algorithms with cluster barriers)

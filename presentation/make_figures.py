@@ -378,12 +378,16 @@ def _ncu_bytes():
 
 
 def envelope(N=8):
-    """Per collective, class and message size: the lowest-mean-latency algorithm of that class."""
+    """Per collective and synchronization class, one algorithm: the one with the lowest geometric-mean
+    latency over the five message sizes (among algorithms measured at all five); all its sizes."""
     c = C.configs()
     c = c[(c.N == N) & c.payload.isin(SIZES)].copy()
     c["cls"] = c["style"].map(CLASS_OF)
     c["L_cyc"] = c.L_ns * S.CYC_PER_NS
-    e = c.loc[c.groupby(["op", "cls", "payload"]).L_ns.idxmin()].copy()
+    full = c.groupby("file").payload.transform("nunique") == len(SIZES)
+    gm = c[full].groupby(["op", "cls", "file"]).L_cyc.apply(lambda v: np.exp(np.log(v).mean())).reset_index()
+    pick = gm.loc[gm.groupby(["op", "cls"]).L_cyc.idxmin(), "file"]
+    e = c[c.file.isin(pick)].copy()
     e = e.merge(_ncu_bytes(), on=["file", "N", "M"], how="left")
     e["gbs_per_sm"] = e.dsmem_bytes / e.N / e.L_ns
     e["util_pct"] = e.gbs_per_sm / S.GBS(64 / 3) * 100
@@ -397,46 +401,52 @@ def _glyphs(d):
     return {f: MARKERS[i] for i, f in enumerate(files)}
 
 
-def _coll_bars(e, col, ylab, name, log=False, ylim=None, ref=None):
-    f, axs = plt.subplots(1, 4, figsize=(13, 5.6), constrained_layout=True, sharey=log)
-    w = 0.26
-    glyphs = {}
-    for ax, op in zip(axs, OPS):
+def _coll_lines(e, col, ylab, name, log=False, ylim=None, ref=None):
+    """2x2 panels; one line per synchronization class (one algorithm each), labelled at its right end in
+    the line's colour; labels pushed apart vertically when line ends are close."""
+    f, axs = plt.subplots(2, 2, figsize=(11, 7.4), constrained_layout=True)
+    f.get_layout_engine().set(h_pad=0.12)
+    xs = np.arange(len(SIZES))
+    for ax, op in zip(axs.flat, OPS):
         d = e[e.op == op]
-        gl = glyphs[op] = _glyphs(d)
-        classes = [k for k in S.CLASSES if k in set(d.cls)]
-        off = {k: (i - (len(classes) - 1) / 2) * w for i, k in enumerate(classes)}
-        for k in classes:
+        ends = []
+        for k in [k for k in S.CLASSES if k in set(d.cls)]:
             g = d[d.cls == k].set_index("payload").reindex(SIZES)
-            x = np.arange(len(SIZES)) + off[k]
-            ax.bar(x, g[col], width=w, color=S.CLASS_COL[k])
-            for xi, v, fl in zip(x, g[col], g.file):
-                if pd.notna(v):
-                    yv = v * 1.22 if log else v + (ylim[1] if ylim else 100) * 0.035
-                    ax.plot(xi, yv, marker=gl[fl], color=S.INK, ms=5.5, mfc="white", mew=1.0, ls="none", zorder=5)
-        ax.set_xticks(range(len(SIZES)), SIZE_LAB, rotation=45, fontsize=10)
-        ax.set_title(OPNAME[op], fontsize=12, color=S.INK)
+            ax.plot(xs, g[col], color=S.CLASS_COL[k], marker="o", ms=5, lw=2)
+            ends.append([g[col].iloc[-1], k, ALG[g.file.iloc[0]][0]])
         if log:
             ax.set_yscale("log")
-        if ylim:
-            ax.set_ylim(*ylim)
+        ax.set_ylim(*ylim)
+        # vertical de-overlap of the end labels, in axis-fraction units
+        tf = (lambda v: (np.log10(v) - np.log10(ylim[0])) / (np.log10(ylim[1]) - np.log10(ylim[0]))) if log \
+            else (lambda v: (v - ylim[0]) / (ylim[1] - ylim[0]))
+        ends.sort(key=lambda t: t[0])
+        pos = [tf(v) for v, _, _ in ends]
+        for i in range(1, len(pos)):
+            pos[i] = max(pos[i], pos[i - 1] + 0.075)
+        for (v, k, lab), yp in zip(ends, pos):
+            ax.text(len(SIZES) - 1 + 0.18, yp, lab, transform=ax.get_yaxis_transform() if False else
+                    matplotlib.transforms.blended_transform_factory(ax.transData, ax.transAxes),
+                    va="center", ha="left", fontsize=10.5, color=S.CLASS_COL[k], fontweight="semibold")
+        ax.set_xticks(xs, SIZE_LAB)
+        ax.set_xlim(-0.3, len(SIZES) - 1 + 1.9)
+        ax.spines["bottom"].set_bounds(0, len(SIZES) - 1)
+        ax.set_title(OPNAME[op], fontsize=12, color=S.INK)
+        ax.grid(axis="x", visible=False)
         if ref is not None:
-            ax.axhline(ref, ls=":", color=S.INK2, lw=1.2)
+            ax.plot([-0.3, len(SIZES) - 1 + 0.1], [ref, ref], ls=":", color=S.INK2, lw=1.2)
+    for ax in axs[:, 0]:
+        ax.set_ylabel(ylab)
+    for ax in axs[1, :]:
         ax.set_xlabel("Message size")
-        h = [Line2D([], [], marker=m, color=S.INK, mfc="white", ls="none", ms=6,
-                    label=f"{ALG[fl][0]} ({ALG[fl][1]})") for fl, m in gl.items()]
-        ax.legend(handles=h, loc="upper left", bbox_to_anchor=(-0.02, -0.3), ncol=1, fontsize=9.5,
-                  handletextpad=0.3, borderaxespad=0)
-    axs[0].set_ylabel(ylab)
-    f.legend(handles=[Patch(color=S.CLASS_COL[k], label=k) for k in S.CLASSES], loc="outside upper center",
-             ncol=3, fontsize=11)
+    f.legend(handles=[Line2D([], [], color=S.CLASS_COL[k], marker="o", lw=2, label=k) for k in S.CLASSES],
+             loc="outside upper center", ncol=3, fontsize=11)
     save(f, name)
-    return glyphs
 
 
 def coll_latency():
     e = envelope()
-    _coll_bars(e, "L_cyc", "Latency (cycles)", "coll_latency", log=True, ylim=(300, 1e5))
+    _coll_lines(e, "L_cyc", "Latency (cycles)", "coll_latency", log=True, ylim=(300, 1e5))
     for _, r in e.sort_values(["op", "cls", "payload"]).iterrows():
         note(6, f"{r.op} {r.cls} {int(r.payload)} B -> {ALG[r.file][0]}", round(r.L_cyc))
     for op in ["allreduce", "reducescatter", "alltoall"]:
@@ -447,7 +457,7 @@ def coll_latency():
 
 def coll_utilization():
     e = envelope()
-    _coll_bars(e, "util_pct", "Per-SM injection bandwidth used (%)", "coll_utilization", ylim=(0, 110), ref=100)
+    _coll_lines(e, "util_pct", "Injection bandwidth used (%)", "coll_utilization", ylim=(0, 105), ref=100)
     for _, r in e.sort_values(["op", "cls", "payload"]).iterrows():
         note(7, f"{r.op} {r.cls} {int(r.payload)} B {ALG[r.file][0]}: GB/s per SM, %", (round(r.gbs_per_sm, 1), round(r.util_pct, 1)))
 
