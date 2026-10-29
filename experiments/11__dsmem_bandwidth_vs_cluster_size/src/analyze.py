@@ -1,5 +1,5 @@
 """Experiment 11 derived tables from the latest complete run of every step (no GPU). Run from the repository root:
-    tools/run --no-gpu -- bash -c "cd experiments/11__dsmem_bandwidth_vs_cluster_size && python3 src/analyze.py"
+    h100 run --no-gpu -- bash -c "cd experiments/11__dsmem_bandwidth_vs_cluster_size && python3 src/analyze.py"
 (--quick: the latest --quick runs, outputs to --out DIR, never into results/; --out DIR alone: full runs, written to DIR
 and not registered).
 

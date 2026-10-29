@@ -1,6 +1,11 @@
 # Development and execution environment (nishil-4xh100-01)
 
-Binding for every human and coding agent working in this repo. Findings date: 2026-10-23.
+Binding for every human and coding agent working in this repo. Since 2026-10-29 the server-wide tooling lives in
+`~/h100/` (manual: **`~/h100/H100.md`**): the `h100` command, the per-user FCFS GPU queue, the target-GPU switch
+(`h100-target`) and the single toolchain image shared with `~/work/fa2026/iacoma/h100-dsmem-collectives`. This page
+keeps only what is specific to this repository. The former in-repo `tools/{run,gpu,env}`, `docker/` and
+`requirements.lock` were removed in that change (git history has them; `requirements.txt` still lists what the
+notebooks import).
 
 ## Workflow
 
@@ -8,15 +13,15 @@ Binding for every human and coding agent working in this repo. Findings date: 20
 edit / agents / git ─┐
                      ▼
    ~/work/fa2026/iacoma/h100-microbench   (NFS, authoritative)
-        ▲  │  tools/run: container mounts $HOME at the same path, runs as you,
-        │  │  sees only the selected GPU, removed (--rm) when the command ends
+        ▲  │  h100 run: container mounts $HOME at the same path, runs as you,
+        │  │  sees only the GPU the queue gives it, deleted when the command ends
         │  ▼
    build (bin/, gitignored) → run benchmark → CSV written into experiments/<NN>/results/
                      ▼
-   notebook executed (tools/run --no-gpu) → commit code + notebook (raw results stay local) → push after the user's review
+   notebook executed (h100 run --no-gpu) → commit code + notebook (raw results stay local) → push after the user's review
 ```
 
-There is **no copy step**. The binary is not staged anywhere and the results are not copied back. The container reads the repo and writes the results in place over NFS. The only things on scratch are Docker's image and each container's small writable layer. The container's `/tmp` is RAM (tmpfs).
+There is **no copy step**. The binary is not staged anywhere and the results are not copied back. The container reads the repo and writes the results in place over NFS. The container's `/tmp` is RAM and is discarded.
 
 | What | Where |
 |---|---|
@@ -24,59 +29,38 @@ There is **no copy step**. The binary is not staged anywhere and the results are
 | Raw results (`experiments/*/results/*.csv`, logs, ncu/nsys exports) | main checkout on NFS **only**; gitignored, never pushed or deleted; rules in `docs/context/09` §6 |
 | Editing, Claude Code / Codex, git | same directory, on the host |
 | Build outputs (`experiments/*/bin/`), `.ncu-rep`/`.nsys-rep` | in-tree, gitignored |
-| Toolchain | **one** Docker image for all experiments (experiments never build their own); `tools/env build` removes our previous versions after a successful build. Image `h100-microbench:cuda12.9.1-<hash>`: nvcc 12.9.86, Nsight Compute 2025.2.1, Nsight Systems, gdb, Python 3.12 + `requirements.lock` |
-
-NFS adds only milliseconds per git or grep operation for this repo, and nothing to compile time (CPU-bound). It is slow for trees of thousands of small files, so dependencies live in the image, not on NFS.
+| Toolchain | the shared image `h100:cuda12.9.1-<hash>` (`~/h100/docker/`): CUDA 12.9.1 (nvcc 12.9.86), Nsight Compute 2025.2.1, Nsight Systems 2025.1.3, Python 3.12 with the notebook stack, plus clang-20, NVBit, CUTLASS, PyTorch. Experiments never build their own image. Rows 01–12 ran in `h100-microbench:cuda12.9.1-26d4f436f8c5`, which had the same CUDA/ncu/nsys versions |
 
 ## Commands
 
 ```bash
-make gpu-status                 # all GPUs, compute processes with user/container, locks, our containers
-make gpu-check [GPU=2]          # preflight only (GPU 3 by default)
-tools/env info                  # image + container-store free space
-tools/env build                 # build the image (refuses below 40 GB free on the container store)
-tools/env verify [--gpu N] [--profile]   # toolchain + 32-thread probe + 1-metric ncu
+h100-target                     # show the target GPU and the queue (setting it is the user's decision)
+make gpu-status                 # = h100 status: all GPUs, processes with owners, locks, our containers, the queue
+make gpu-check [GPU=2]          # = h100 check: preflight of one GPU (default: the target)
 
-tools/run --no-gpu -- make -C experiments/01__timers_and_harness       # build (no GPU)
-tools/run -- make -C experiments/01__timers_and_harness run            # run on GPU 3 (default)
-tools/run --gpu 2 -- ...                                               # GPU 2 only when the user names it explicitly
-tools/run --profile --lock-sm-mhz 1635 -- make -C experiments/NN run   # ncu counters + the project's locked clock (docs/context/10)
-tools/clocktest/select_clock.sh [--gpu N]  # re-run the clock selection (only if power limit/driver/card change)
-tools/run --no-gpu -- jupyter nbconvert --execute --to notebook --inplace experiments/NN/NN.ipynb
-tools/run [--no-gpu]            # interactive shell
+h100 run --no-gpu -- make -C experiments/01__timers_and_harness                       # build (no GPU, runs at once)
+h100 run --gpu 3 --profile --lock-sm-mhz 1635 -- make -C experiments/NN run          # queued GPU run, pinned to the experiment's card
+h100 submit --gpu 3 --profile --lock-sm-mhz 1635 -- make -C experiments/NN run       # same, returns the job id (h100 wait / h100 log -f)
+h100 run --no-gpu -- jupyter nbconvert --execute --to notebook --inplace experiments/NN/NN.ipynb
+h100 shell                      # interactive shell without GPU
+h100 queue                      # queue state, freeze reason, jobs
 ```
 
-## Container lifecycle
-- What survives a kill (by us, by Ctrl-C, or by anyone with sudo/docker rights): every row already written to `results/` on NFS. What is lost: data still in the benchmark's memory and anything in the container's `/tmp` (RAM). Benchmarks therefore follow the crash-safe CSV rules in `docs/context/09` §6.
-- `docker run --rm --init`, in the foreground: the container exists only while the command runs and is deleted when it exits. `--init` reaps child processes inside it.
-- If `tools/run` is interrupted (Ctrl-C) or terminated, its exit trap runs `docker stop` on its own container. In `--profile` mode the entrypoint forwards the SIGTERM and resets a clock lock before exiting. Only `kill -9` of `tools/run` can leave a container behind. `make gpu-status` lists any container labelled `h100mb.owner=$USER`.
-- The GPU lock is held by `tools/run` for exactly the lifetime of its container.
+- `--profile` is needed for `ncu` (the driver has `RmProfilingAdminOnly=1`) and for the clock lock; `--lock-sm-mhz 1635` is the fixed configuration of `docs/context/10` §2.
+- **Pin every GPU run of an experiment to the card its plan names** (`--gpu N`). Results that depend on the card (L2 partition labels, slice/hash maps, clock domains) are not portable between GPUs 2 and 3. A pinned job never runs on another card: if the user switches the target, the queue freezes until the card is the target again.
+- The queue runs one GPU job at a time, first come first served, and **freezes** when anyone else uses the GPU or a job of ours is ended from outside; the interrupted job stays at the head and reruns after the user unfreezes it. Agents never unfreeze, freeze, switch the target or cancel jobs on their own: report `h100 queue`'s reason and wait. Benchmarks must therefore stay restartable: append-only CSVs with a new `run_id` and the run registry of `docs/context/09` §6, so an interrupted attempt shows up as a partial run.
 
-## GPU safety
+## GPU history of this repository
+- Authorized cards: GPU 2 (`GPU-428e544c-5649-1dde-a6bf-95de7485dd6a`, PCI `C3:00.0`, serial 1793225009411) and GPU 3 (`GPU-1241dcbc-33ea-80bf-5f87-37f7868c3126`, PCI `DA:00.0`, serial 1793225008254). Others are refused by `h100`.
+- Experiments 01–08 and the clock selection (`clock_selection/`, 2026-10-23) ran on **GPU 2**. On 2026-10-25 the work moved to **GPU 3**: the GPU-3 bring-up row of `AGENTS.md` re-checked it (same 1635 MHz lock, SM→GPC map, cluster placement and occupancy; 08's L2 labels not re-measured). Experiments 09 onwards ran on GPU 3. 12 found GPU 3's L2 partitions to be GPCs {0,5,6,7} | {1,2,3,4} (G4 and G7 swapped compared with GPU 2).
+- Until 2026-10-29 the default GPU was hard-coded (`DEFAULT_GPU` in the removed `tools/common.sh`). Since then there is no default: the user sets the target, and experiments pin their runs.
 
-- Authorized: **GPU 3 (default)** and **GPU 2 (explicit `--gpu 2`)**, pinned in `tools/common.sh` by UUID and PCI id. Every other index is refused.
-- The default switched from GPU 2 to GPU 3 on 2026-10-25 (`DEFAULT_GPU=3` in `tools/common.sh`). Experiments 01–08 and the clock selection ran on GPU 2; the GPU-3 bring-up row in `AGENTS.md` (2026-10-25) re-checked them on GPU 3: same 1635 MHz lock, same SM→GPC map and cluster placement; 08's L2 labels were not re-measured on GPU 3. The sibling repository `~/work/fa2026/iacoma/h100-dsmem-collectives` runs through this same `tools/run` and shares the cooperative lock, so only one GPU job runs at a time across both repositories.
-- `tools/run` (GPU mode) refuses to launch when any of these holds for the target GPU:
-  - index, UUID or PCI id don't match the pinned values;
-  - any compute process is on it (owner and container are reported);
-  - memory used > 1 GiB, or utilization > 5 % in a 2 s sample;
-  - a non-infrastructure container was explicitly given the GPU (`NVIDIA_VISIBLE_DEVICES`/`--gpus` containing its index or UUID). A container that only sees `all` GPUs is reported as a warning and does not block: the users of GPUs 0 and 1 never use GPUs 2 and 3, and actual use is caught by the process, memory and utilization checks above;
-  - the cooperative lock is held.
-
-  With `H100MB_REQUIRE_RESERVATION=1` it also refuses if no window in `~/.config/h100-microbench/reservations.tsv` covers now.
-- Every run (GPU or not) refuses to start a container when the container store has < 2 GB free. Building refuses below 40 GB.
-- Cooperative lock: `flock` on `/tmp/h100-gpu-locks/gpu<N>.lock` (a few bytes). It only coordinates processes that use it, i.e. our tools and agents. It is **not** exclusive ownership.
-- Container isolation: `--gpus device=<UUID>` and `NVIDIA_VISIBLE_DEVICES=<UUID>`. The image defaults to `void`, because the host's default Docker runtime is `nvidia` and would otherwise expose all four GPUs. The entrypoint aborts unless it sees exactly the expected UUID (or nothing for `--no-gpu`). Never `docker run` the image by hand.
-- Not checkable from this account: Kubernetes allocations. The node's nvidia-device-plugin advertises GPUs 2 and 3.
-- Never kill, renice or touch other users' processes, containers, locks or allocations, and never `docker system prune`/`image prune` (the daemon is shared).
-
-## Host facts that shaped this
-
-- `/home/$USER` is NFSv3 (autofs, root-squashed, mode 0700). The root Docker daemon can `stat` `$HOME` but nothing inside it, so a subdirectory bind mount fails with `permission denied`. `tools/run` mounts all of `$HOME` and runs as your uid. Docker's runtime sets the working directory as root, which cannot enter the home, so `tools/run` never passes `-w`. It changes into `$PWD` as your uid inside the container. In `--profile` mode that happens after the entrypoint has dropped from root.
-- `/scratch` (= `/srv/local/scratch`, local XFS 21 TB, shared by group `cs_nishil`, no quota) was **100 % full** on 2026-10-23. Docker's image store `/var/lib/containerd` is a symlink onto that volume, so the image cannot be built until space is freed.
-- Profiling: `RmProfilingAdminOnly=1` means a plain user gets `ncu` → `ERR_NVGPUCTRPERM`. Clock locking (`nvidia-smi -lgc`) needs root. `--profile` runs the container as root with `CAP_SYS_ADMIN`. The entrypoint locks the clock (if asked), resets it on exit, and runs the command as your uid with `CAP_SYS_ADMIN` kept as an ambient capability. A DCGM exporter runs on the node; if ncu reports the counters busy, that is the likely cause.
+## Host facts
+The full list is in `~/h100/H100.md` §7. The facts that shaped this repo's conventions:
+- `$HOME` is NFS: results are written straight into `experiments/<NN>/results/` from inside the container. Never write results to `/tmp` (RAM, lost when the job ends).
+- `import numpy` spins one OpenBLAS thread per core (256); the image caps BLAS/OpenMP threads at 8.
 - The device is an **H100 NVL** (132 SMs, 60 MiB L2 reported by `cudaDeviceProp`, max SM clock 1785 MHz, HBM 2619 MHz), not SXM5. Record it, and compare with SXM5 prior-work numbers accordingly.
-- `import numpy` spins one OpenBLAS thread per core (256). The image caps BLAS/OpenMP threads at 8.
+- A DCGM exporter runs on the node; if ncu reports the counters busy, that is the likely cause.
 
 ## Recovery after scratch loss
-Nothing of ours is stored only on scratch. Run `tools/env build`, then rebuild with `make`. Source and notebooks are on NFS and GitHub; raw results only on NFS (main checkout).
+Nothing of ours is stored only on scratch. Run `h100 image build`, then rebuild with `make`. Source and notebooks are on NFS and GitHub; raw results only on NFS (main checkout).

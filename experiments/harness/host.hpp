@@ -16,7 +16,7 @@
  *                    and returns the sample. lock_clocks_note() also appends `nvidia-smi -q -d CLOCK,PERFORMANCE`
  *                    to results/<EXP>__nvidia_smi.log. A sample is "bad" (launch to be discarded) if a throttle
  *                    reason fired (SW/HW power cap, SW/HW thermal, power brake) or the SM clock is more than one
- *                    15 MHz step below the lock requested through tools/run (H100MB_LOCK_SM_MHZ).
+ *                    15 MHz step below the lock requested through h100 run (H100MB_LOCK_SM_MHZ).
  *   hb::ClusterLaunch  cudaLaunchKernelEx with optional cluster dims and an explicit scheduling policy
  *                    (explicit_cluster: also for a cluster of 1); prepare() fills the launch configuration
  *                    once so that a timed launch is a bare cudaLaunchKernelEx;
@@ -182,7 +182,7 @@ struct DeviceInfo {
     int sm_count = 0, l2_bytes = 0;
     unsigned power_limit_mw = 0;
     bool ecc = false, mig = false;
-    unsigned lock_mhz = 0;  // requested by tools/run --lock-sm-mhz (0 = none)
+    unsigned lock_mhz = 0;  // requested by h100 run --lock-sm-mhz (0 = none)
     nvmlDevice_t nvml{};
 
     static DeviceInfo open(bool enforce = true) {

@@ -1,5 +1,5 @@
 """Builds reports/h100_characterization.ipynb (text + one-line code cells calling reports/h100char).
-Run: tools/run --no-gpu -- python3 reports/build_report.py, then execute the notebook with nbconvert."""
+Run: h100 run --no-gpu -- python3 reports/build_report.py, then execute the notebook with nbconvert."""
 import os
 import nbformat as nbf
 

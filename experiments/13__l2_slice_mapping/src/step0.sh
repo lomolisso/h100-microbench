@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Experiment 13, Step 0: instance-export re-check. Run inside
-#   tools/run --profile --lock-sm-mhz 1635 -- bash experiments/13__l2_slice_mapping/src/step0.sh
+#   h100 run --profile --lock-sm-mhz 1635 -- bash experiments/13__l2_slice_mapping/src/step0.sh
 # Profiles bin/step0_instances (one line, 4096 dependent reads) four ways and checks whether any form yields per-unit
 # instance values: (i) kernel replay, --print-metric-instances details; (ii) the same under application replay;
 # (iii) --set full report read back with --print-metric-instances details and with the ncu_report Python module

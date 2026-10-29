@@ -1,6 +1,6 @@
 """Experiment 07 summary: the synchronisation costs later experiments (09, 12, 16, 17, 18) consume, from the latest
 complete full run of each binary (no GPU). Run from the repository root:
-    tools/run --no-gpu -- bash -c "cd experiments/07__synchronization_primitives && python3 src/summarize.py"
+    h100 run --no-gpu -- bash -c "cd experiments/07__synchronization_primitives && python3 src/summarize.py"
 
 Primitive costs (K1–K3, K5; cycles per operation = (t1 − t0 − timer floor) / n_ops, median/p5/p95 over every rep of
 every recorded launch, launches flagged in the clock log dropped): one row per (kernel, primitive, cs, block_threads,

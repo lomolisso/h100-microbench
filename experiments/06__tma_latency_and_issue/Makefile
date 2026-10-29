@@ -13,7 +13,7 @@ all: sass-slim
 sass-slim: sass
 	sed -i -E '/^[[:space:]]*\/\* 0x[0-9a-f]{16} \*\/[[:space:]]*$$/d; s#[[:space:]]*/\* 0x[0-9a-f]{16} \*/##' $(SASS_DIR)/tma_issue.sass
 
-# Full run (inside: tools/run --profile --lock-sm-mhz 1635 -- make -C experiments/06__tma_latency_and_issue run);
+# Full run (inside: h100 run --profile --lock-sm-mhz 1635 -- make -C experiments/06__tma_latency_and_issue run);
 # a subset of the steps of src/run.sh with: make ... run STEPS="chase ncu"
 run: all
 	bash src/run.sh $(STEPS)

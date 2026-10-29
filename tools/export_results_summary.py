@@ -8,7 +8,7 @@ For each experiments/NN__name/NN__name.ipynb writes experiments/NN__name/NN__nam
      figures as "[figure k]"); code itself is omitted;
   3. the latest run_id of the experiment's derived tables, if present locally: results/*summary*.csv and the per-SM
      maps (03 map, 08 sm_signature / sm_map), mandatory columns other than run_id dropped.
-Usage (repo root): tools/run --no-gpu -- python3 tools/export_results_summary.py [NN ...]
+Usage (repo root): h100 run --no-gpu -- python3 tools/export_results_summary.py [NN ...]
 """
 import glob
 import html

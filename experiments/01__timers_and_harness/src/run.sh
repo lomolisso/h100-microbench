@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Full run of experiment 01. Called by `make run` inside
-#   tools/run --profile --lock-sm-mhz 1635 -- make -C experiments/01__timers_and_harness run
+#   h100 run --profile --lock-sm-mhz 1635 -- make -C experiments/01__timers_and_harness run
 # Order: clock check → harness self-test → K1, K2, K3, K5 (no profiler) → K4 under ncu with
 # --clock-control none (our lock) → K4 under ncu with --clock-control base (last, because ncu changes the
 # clocks itself) → final clock check. Every step appends to results/ with its own run_id.

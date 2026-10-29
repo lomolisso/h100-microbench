@@ -1,6 +1,6 @@
 """Experiment 09 summary: the DSMEM latencies later experiments (10, 11, 12, 16, 17, 18) consume, from the latest complete
 full run of each binary/mode (no GPU). Run from the repository root:
-    tools/run --no-gpu -- bash -c "cd experiments/09__dsmem_latency_vs_cluster_size && python3 src/summarize.py"
+    h100 run --no-gpu -- bash -c "cd experiments/09__dsmem_latency_vs_cluster_size && python3 src/summarize.py"
 
 Every recorded launch is used (launches with a bad placement or clock sample were already discarded and repeated by the
 binaries). Levels (statistics over every row of the selection; cycles of the measuring SM):

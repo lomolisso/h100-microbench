@@ -24,10 +24,16 @@
       "Bash(grep:*)",
       "Bash(find:*)",
       "Bash(mkdir:*)",
-      "Bash(tools/run:*)",
-      "Bash(tools/gpu:*)",
-      "Bash(tools/env:*)",
-      "Bash(tools/clocktest/select_clock.sh:*)"
+      "Bash(h100 run:*)",
+      "Bash(h100 submit:*)",
+      "Bash(h100 queue:*)",
+      "Bash(h100 log:*)",
+      "Bash(h100 wait:*)",
+      "Bash(h100 status:*)",
+      "Bash(h100 check:*)",
+      "Bash(h100 image info:*)",
+      "Bash(h100 image verify:*)",
+      "Bash(h100-target)"
     ],
     "deny": [
       "Bash(rm -rf /:*)",
@@ -39,6 +45,16 @@
       "Bash(docker container prune:*)",
       "Bash(docker volume prune:*)",
       "Bash(docker builder prune:*)"
+    ],
+    "ask": [
+      "Bash(h100 unfreeze:*)",
+      "Bash(h100 freeze:*)",
+      "Bash(h100 cancel:*)",
+      "Bash(h100-target :*)",
+      "Bash(h100 target:*)",
+      "Bash(h100 image build:*)",
+      "Bash(h100 image lock:*)",
+      "Bash(h100 clocktest:*)"
     ]
   },
   "worktree": {

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Full run of experiment 08. Called by `make run` (or `make quick`: src/run.sh --quick) inside
-#   tools/run --profile --lock-sm-mhz 1635 -- make -C experiments/08__l2_partitions_and_first_touch run
+#   h100 run --profile --lock-sm-mhz 1635 -- make -C experiments/08__l2_partitions_and_first_touch run
 # Order: clock check → calib → K1 → K2 → K3 → K5 → K4 (with the calibrated timer pair) → ncu (per-line slice
 # instances + L1 bypass, partition-link sectors of first/second reads, K4 hit rates) → clock check.
 # Usage: src/run.sh [--quick] [step ...], steps: calib k1 k2 k2vmm k3 k5 k4 ncu ncufab1 (default: all, in this order;
 # ncu also runs the superseded ncu_fabric, ncufab1 its replacement).
 # Every binary invocation appends to results/ with its own run_id; profiler reports stay in bin/.
-# The summary (src/summarize.py) needs no GPU: tools/run --no-gpu -- python3 src/summarize.py
+# The summary (src/summarize.py) needs no GPU: h100 run --no-gpu -- python3 src/summarize.py
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Full run of experiment 04. Called by `make run` (or `make quick`: src/run.sh --quick) inside
-#   tools/run --profile --lock-sm-mhz 1635 -- make -C experiments/04__memory_hierarchy_latency run
+#   h100 run --profile --lock-sm-mhz 1635 -- make -C experiments/04__memory_hierarchy_latency run
 # Order: clock check → K1 (smem, pinned to SM 2) → K3 calib → K3 matrix → pick B touchers and K2 SMs → K3 raw → K2 footprint sweep
 # → K2 under ncu (--clock-control none keeps our lock, --cache-control none keeps the warm chase) → clock check.
 # Usage: src/run.sh [--quick] [step ...], steps: k1 calib matrix raw k2 ncu (default: all, in this order); the clock
 # checks at start and end always run. `raw` and `k2` pick their SMs from the latest complete `matrix` run, so they can
 # run without `matrix` once one exists. Subset: make -C experiments/04__memory_hierarchy_latency run STEPS="k1".
-# The summary (src/summarize.py) needs no GPU and runs afterwards: tools/run --no-gpu -- python3 src/summarize.py
+# The summary (src/summarize.py) needs no GPU and runs afterwards: h100 run --no-gpu -- python3 src/summarize.py
 # Every binary invocation appends to results/ with its own run_id; profiler reports stay in bin/.
 set -euo pipefail
 cd "$(dirname "$0")/.."

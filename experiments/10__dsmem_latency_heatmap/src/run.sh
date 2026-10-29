@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Full run of experiment 10. Called by `make run` (or `make quick`: src/run.sh --quick) inside
-#   tools/run --profile --lock-sm-mhz 1635 -- make -C experiments/10__dsmem_latency_heatmap run
+#   h100 run --profile --lock-sm-mhz 1635 -- make -C experiments/10__dsmem_latency_heatmap run
 # Order: clock check → steering pilot → schedules E, A, C, B, D, D8 (src/heatmap.cu) → K1 under ncu → clock check.
 # Usage: src/run.sh [--quick] [step ...], steps: steer E E2 A C B D D8 K ncu (default: all, in this order; K = clock check).
 # Every binary invocation appends to results/ with its own run_id; profiler reports stay in bin/.

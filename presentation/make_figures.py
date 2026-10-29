@@ -1,7 +1,7 @@
 """Figures, tables and numbers for the progress slides (presentation/slides.md).
 
 Every number comes from the local measurement results through reports/h100char (the report's data layer).
-Run: tools/run --no-gpu -- python3 presentation/make_figures.py
+Run: h100 run --no-gpu -- python3 presentation/make_figures.py
 Writes presentation/figs/<name>.png (matplotlib, 300 dpi), presentation/collective_algorithms.csv, presentation/numbers.txt.
 """
 import os

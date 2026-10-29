@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Full run of experiment 09. Called by `make run` (or `make quick`: src/run.sh --quick) inside
-#   tools/run --profile --lock-sm-mhz 1635 -- make -C experiments/09__dsmem_latency_vs_cluster_size run
+#   h100 run --profile --lock-sm-mhz 1635 -- make -C experiments/09__dsmem_latency_vs_cluster_size run
 # Order: clock check → K3 (local / L2 / HBM references) → K1 (+ K1-fine) all-to-all DSMEM chase → K1f loaded → K2 store
 # visibility → K1 under ncu (DSMEM counters) → clock check.
 # Usage: src/run.sh [--quick] [step ...], steps: k3 k1 loaded k2 ncu (default: all, in this order).

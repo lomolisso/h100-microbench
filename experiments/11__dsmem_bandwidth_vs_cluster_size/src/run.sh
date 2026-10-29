@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Full run of experiment 11. Called by `make run` (or `make quick`: src/run.sh --quick) inside
-#   tools/run --profile --lock-sm-mhz 1635 -- make -C experiments/11__dsmem_bandwidth_vs_cluster_size run
+#   h100 run --profile --lock-sm-mhz 1635 -- make -C experiments/11__dsmem_bandwidth_vs_cluster_size run
 # Order: clock check → steps A S B C D E F P1 K4 of bin/dsmem_bw → K5 (bin/dsmem_l2mix) → GMEM reference lines (05's
 # L2 and HBM bandwidth steps, appended to 05's results with their own run_ids) → profiled launches under ncu → clock check.
 # Usage: src/run.sh [--quick] [step ...], steps: A S B C D E F P1 K4 K5 ref ncu (default: all, in this order).

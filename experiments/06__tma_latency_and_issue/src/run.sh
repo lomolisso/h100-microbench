@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Full run of experiment 06. Called by `make run` (or `make quick`: src/run.sh --quick) inside
-#   tools/run --profile --lock-sm-mhz 1635 -- make -C experiments/06__tma_latency_and_issue run
+#   h100 run --profile --lock-sm-mhz 1635 -- make -C experiments/06__tma_latency_and_issue run
 # Order: clock check → K2 (completion, predicate costs) → K3 (issue / admission) → K3sms (issue under load on 1/2/4/8
 # chosen SMs) → K4 (boxes) → K1/K5 (chase, the long step) → the three ncu-mode invocations under ncu → clock check.
 # The summary (src/summarize.py) needs no GPU:
-#   tools/run --no-gpu -- python3 src/summarize.py
+#   h100 run --no-gpu -- python3 src/summarize.py
 # Usage: src/run.sh [--quick] [step ...], steps: k2 k3 k3sms k4 chase ncu (default: all, in this order).
 # Every binary invocation appends to results/ with its own run_id; profiler reports stay in bin/.
 set -euo pipefail

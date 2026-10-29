@@ -11,7 +11,7 @@ all: sass-slim
 sass-slim: sass
 	sed -i -E '/^[[:space:]]*\/\* 0x[0-9a-f]{16} \*\/[[:space:]]*$$/d; s#[[:space:]]*/\* 0x[0-9a-f]{16} \*/##' $(addprefix $(SASS_DIR)/,$(addsuffix .sass,$(BINS)))
 
-# Full run (inside: tools/run --profile --lock-sm-mhz 1635 -- make -C experiments/10__dsmem_latency_heatmap run);
+# Full run (inside: h100 run --profile --lock-sm-mhz 1635 -- make -C experiments/10__dsmem_latency_heatmap run);
 # a subset of the steps of src/run.sh with: make ... run STEPS="steer A ncu"
 run: all
 	bash src/run.sh $(STEPS)

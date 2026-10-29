@@ -1,5 +1,5 @@
 """Experiment 10 derived tables from the latest complete full run of every schedule (no GPU). Run from the repository root:
-    tools/run --no-gpu -- bash -c "cd experiments/10__dsmem_latency_heatmap && python3 src/analyze.py"
+    h100 run --no-gpu -- bash -c "cd experiments/10__dsmem_latency_heatmap && python3 src/analyze.py"
 
 Matrices (per directed SM pair, remote pairs only, idle placeholders, every recorded launch of schedules A, B, C and the
 idle sessions of D and D8, all cluster sizes pooled):

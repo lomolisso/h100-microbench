@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Full run of experiment 05. Called by `make run` (or `make quick`: src/run.sh --quick) inside
-#   tools/run --profile --lock-sm-mhz 1635 -- make -C experiments/05__memory_hierarchy_bandwidth run
+#   h100 run --profile --lock-sm-mhz 1635 -- make -C experiments/05__memory_hierarchy_bandwidth run
 # Order: clock check → K1/K2 (SMEM, L1) → K3/K5 (L2, incl. home labelling) → L2 partition link → first-pass test with
 # residency check → store copies → K4/K5 (HBM) → the binaries under ncu → clock check. The summary (src/summarize.py) needs no GPU:
-#   tools/run --no-gpu -- python3 src/summarize.py
+#   h100 run --no-gpu -- python3 src/summarize.py
 # Usage: src/run.sh [--quick] [step ...], steps: k12 k3 link firstpass storecopy k4 ncu12 ncul2 ncufp ncudram
 # (default: all, in this order).
 # Every binary invocation appends to results/ with its own run_id; profiler reports stay in bin/.

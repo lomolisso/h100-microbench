@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Full run of experiment 02. Called by `make run` inside
-#   tools/run --profile --lock-sm-mhz 1635 -- make -C experiments/02__cluster_launch_and_occupancy run
+#   h100 run --profile --lock-sm-mhz 1635 -- make -C experiments/02__cluster_launch_and_occupancy run
 # Order: clock check → K1 (event floor + overhead sweep) → K2 (occupancy probe) → launch-metric name check →
 # ncu (launch statistics, --clock-control none keeps our lock) → nsys (back-to-back launch gaps) → clock check.
 # Every step appends to results/ with its own run_id; profiler reports stay in bin/ (not results).

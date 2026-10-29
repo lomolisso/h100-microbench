@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Full run of experiment 12. Called by `make run` (or `make quick`: src/run.sh --quick) inside
-#   tools/run --profile --lock-sm-mhz 1635 -- make -C experiments/12__dsmem_atomics_and_async_stores run
+#   h100 run --profile --lock-sm-mhz 1635 -- make -C experiments/12__dsmem_atomics_and_async_stores run
 # Order: clock check → K0a (per-SM L2 partition, writes results/12__atomics__sm_partition.csv, read by every later step)
 # → K0b labels → K1 (atom_lat) → K6 global flags → K2/K3 (atom_tput) → K4–K7 (dsmem_async) → profiled launches under ncu
 # → clock check.

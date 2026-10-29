@@ -8,10 +8,11 @@ run:   ; @for e in $(EXPS); do $(MAKE) -C $$e run   || exit 1; done
 clean: ; @for e in $(EXPS); do $(MAKE) -C $$e clean || exit 1; done
 $(EXPS): ; $(MAKE) -C $@ all
 
-# Environment (see docs/environment/README.md). GPU work always goes through tools/run.
-env-info:   ; @tools/env info
-env-build:  ; tools/env build
-env-verify: ; tools/env verify $(if $(GPU),--gpu $(GPU))
-gpu-status: ; @tools/gpu status
-gpu-check:  ; @tools/gpu check $(if $(GPU),--gpu $(GPU))
-shell:      ; tools/run $(if $(GPU),--gpu $(GPU),--no-gpu)
+# Environment: ~/h100/H100.md (repo notes: docs/environment/README.md). GPU work always goes through the
+# per-user queue (`h100 run`); the target GPU is the user's choice (`h100-target`).
+env-info:   ; @h100 image info
+env-build:  ; h100 image build
+env-verify: ; h100 image verify $(if $(GPU),--gpu $(GPU))
+gpu-status: ; @h100 status
+gpu-check:  ; @h100 check $(GPU)
+shell:      ; h100 shell $(if $(GPU),--gpu $(GPU))
